@@ -48,7 +48,7 @@ Let’s define some inputs for the run:
     ngpu - number of GPUs available. If this is 0, code will run in CPU mode. If this number is greater than 0 it will run on that number of GPUs
 '''
 
-# Root directory for dataset; for running this on google colab adding ./ to make a relative path helped
+# Root directory for dataset
 dataroot = "data/celeba"
 
 # Number of workers for dataloader
@@ -485,6 +485,7 @@ HTML(ani.to_jshtml())
 real_batch = next(iter(dataloader))
 
 # Plot the real images
+#%%capture
 plt.figure(figsize=(15,15))
 plt.subplot(1,2,1)
 plt.axis("off")
@@ -492,6 +493,7 @@ plt.title("Real Images")
 plt.imshow(np.transpose(vutils.make_grid(real_batch[0].to(device)[:64], padding=5, normalize=True).cpu(),(1,2,0)))
 
 # Plot the fake images from the last epoch
+#%%capture
 plt.subplot(1,2,2)
 plt.axis("off")
 plt.title("Fake Images")

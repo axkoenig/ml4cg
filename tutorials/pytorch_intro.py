@@ -41,7 +41,7 @@ x = torch.randn(4, 4)
 y = x.view(16)
 z = x.view(-1, 8)  # the size -1 is inferred from other dimensions
 # print(x.size(), y.size(), z.size())
-
+ 
 # Converting a Torch Tensor to a NumPy Array
 a = torch.ones(5,3)
 # print(a)
