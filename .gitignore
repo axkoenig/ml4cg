@@ -2,6 +2,9 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.vscode
+tutorials/data/
+tutorials/cifar_net.pth
 
 # C extensions
 *.so
