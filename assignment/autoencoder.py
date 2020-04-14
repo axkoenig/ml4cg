@@ -22,11 +22,11 @@ logger.setLevel(logging.DEBUG)
 logger.debug("Starting program")
 
 # Root directory for dataset
-dataroot = "/home/dcor/ronmokady/workshop20"
+dataroot = "/home/dcor/ronmokady/workshop20/team6/ml4cg/data"
 logger.debug(f"Dataroot is {dataroot}")
 
 workers = 8        # Number of workers for dataloader
-batch_size = 2     # Batch size during training (assignment requirement > 2)
+batch_size = 16    # Batch size during training (assignment requirement > 2)
 image_size = 128   # Spatial size of training images (assignment requirement 128x128)
 nc = 3             # Number of channels in the training images (RGB)
 nz = 256           # Size of latent vector z (assigment requirement 256)
@@ -66,7 +66,9 @@ logger.debug(f"Device you are running is \"{device}\"")
 # plt.title("Training Images")
 # plt.imshow(np.transpose(vutils.make_grid(real_batch[0].to(device)[:64], padding=2, normalize=True).cpu(),(1,2,0)))         
  
-# Reminder: Conv2d(in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True)
+# Reminders:
+# Conv2d(in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True)
+# out_dims = (in_dims - kernel_size + 2*padding) / 2 + 1 
 
 class Autoencoder(nn.Module):
     def __init__(self, ngpu):
@@ -74,32 +76,32 @@ class Autoencoder(nn.Module):
         self.ngpu = ngpu
         self.encoder = nn.Sequential(
             # Layer 1: Input is (nc) x 128 x 128
-            nn.Conv2d(nc, nfe, 4, bias=False),
+            nn.Conv2d(nc, nfe, 4, 2, 1, bias=False),
             nn.BatchNorm2d(nfe),
             nn.ReLU(True),
 
             # Layer 2: State size is (nfe) x 64 x 64
-            nn.Conv2d(nfe, nfe * 2, 4, bias=False),
+            nn.Conv2d(nfe, nfe * 2, 4, 2, 1, bias=False),
             nn.BatchNorm2d(nfe * 2),
             nn.ReLU(True),
 
             # Layer 3: State size is (nfe*2) x 32 x 32
-            nn.Conv2d(nfe * 2, nfe * 4, 4, bias=False),
+            nn.Conv2d(nfe * 2, nfe * 4, 4, 2, 1, bias=False),
             nn.BatchNorm2d(nfe * 4),
             nn.ReLU(True),
 
             # Layer 4: State size is (nfe*4) x 16 x 16
-            nn.Conv2d(nfe * 4, nfe * 8, 4, bias=False),
+            nn.Conv2d(nfe * 4, nfe * 8, 4, 2, 1, bias=False),
             nn.BatchNorm2d(nfe * 8),
             nn.ReLU(True),
 
             # Layer 5: State size is (nfe*8) x 8 x 8
-            nn.Conv2d(nfe * 8, nfe * 16, 4, bias=False),
+            nn.Conv2d(nfe * 8, nfe * 16, 4, 2, 1, bias=False),
             nn.BatchNorm2d(nfe * 16),
             nn.ReLU(True),
             
             # Layer 6: State size is (nfe*16) x 4 x 4
-            nn.Conv2d(nfe * 16, nz, 4, bias=False),
+            nn.Conv2d(nfe * 16, nz, 4, 1, 0, bias=False),
             nn.ReLU(True)
 
             # Output size is (nz) x 1 x 1
@@ -170,25 +172,22 @@ criterion = nn.MSELoss()
 optimizer = optim.Adam(autoencoder.parameters(), lr=lr, betas=(beta1, beta2))
 
 logger.debug("Starting training loop")
-train_losses = []
 
 for epoch in range(num_epochs):
     for i, data in enumerate(dataloader, 0):
-
-        # retrieve batch
-        img, _ = data
-        img = img.to(device)
         
         # forward pass
-        output = autoencoder(img)
-        loss = criterion(output, img)
+        batch = data[0].to(device)
+        output = autoencoder(batch)
+        loss = criterion(output, batch)
 
         # backward pass
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        train_losses.append(loss.detach())
 
         # Output training stats
         if i % 50 == 0:
             logger.debug(f"[{epoch}/{num_epochs}][{i}/{len(dataloader)}]\t Training Loss: {loss.item()}")
+
+logger.debug("Training finished")

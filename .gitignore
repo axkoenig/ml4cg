@@ -5,6 +5,7 @@ __pycache__/
 *.vscode
 tutorials/data/
 tutorials/cifar_net.pth
+data/
 
 # C extensions
 *.so
