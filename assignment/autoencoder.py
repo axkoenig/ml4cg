@@ -26,7 +26,7 @@ dataroot = "/home/dcor/ronmokady/workshop20"
 logger.debug(f"Dataroot is {dataroot}")
 
 workers = 8        # Number of workers for dataloader
-batch_size = 128   # Batch size during training (assignment requirement > 2)
+batch_size = 8     # Batch size during training (assignment requirement > 2)
 image_size = 128   # Spatial size of training images (assignment requirement 128x128)
 nc = 3             # Number of channels in the training images (RGB)
 nz = 256           # Size of latent vector z (assigment requirement 256)
@@ -55,18 +55,21 @@ dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
 device = torch.device("cuda:0" if (
     torch.cuda.is_available() and ngpu > 0) else "cpu")
 
+logger.debug(f"Device you are running is \"{device}\"")
+
+# TODO Train / Val split
 # TODO Plot some training images (do this with Tensorboard)
+# TODO Save models
 # real_batch = next(iter(dataloader))
 # plt.figure(figsize=(8,8))
 # plt.axis("off")
 # plt.title("Training Images")
-# plt.imshow(np.transpose(vutils.make_grid(real_batch[0].to(device)[:64], padding=2, normalize=True).cpu(),(1,2,0)))
-            
+# plt.imshow(np.transpose(vutils.make_grid(real_batch[0].to(device)[:64], padding=2, normalize=True).cpu(),(1,2,0)))         
  
 # Reminder: Conv2d(in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True)
 
 class Autoencoder(nn.Module):
-    def __init__(self):
+    def __init__(self, ngpu):
         super(Autoencoder, self).__init__()
         self.ngpu = ngpu
         self.encoder = nn.Sequential(
@@ -140,69 +143,52 @@ class Autoencoder(nn.Module):
         x = self.decoder(x)
         return x
 
-# weight initialization randomly initializing from a normal distribution
+# custom weight initialization called on autoencoder
 def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:
-        # params: tensor, mean and std, fill the input tensor with values drawn from the standard distribution with given mean and std
         nn.init.normal_(m.weight.data, 0.0, 0.02)
     elif classname.find('BatchNorm') != -1:
         nn.init.normal_(m.weight.data, 1.0, 0.02)
-        # for batch norm also initializing the bias (The weight and bias in BatchNorm are the gamma and beta 
-        # in the documentation, while gamma is the root of the variance, and beta is the expectation)
         nn.init.constant_(m.bias.data, 0)
 
-# Instantiating the autoencoder
-# Check out the printed model to see the autoencoder object's architecture
-
-# Create the autoencoder
-autoencoder = Autoencoder()
+autoencoder = Autoencoder(ngpu).to(device)
 
 # Handle multi-gpu if desired
 if (device.type == 'cuda') and (ngpu > 1):
+    logger.debug(f"Preparing model for {ngpu} GPUs")
     autoencoder = nn.DataParallel(autoencoder, list(range(ngpu)))
 
-# Print the model
-print(autoencoder)
+logger.debug(f"Autoencoder architecture is\n{autoencoder}")
 
-# Apply the weights_init function to randomly initialize all weights to mean=0, stdev=0.2.
-print("initializing weights")
+# Randomly initialize all weights to mean=0 and stdev=0.2
+logger.debug("Initializing weights")
 autoencoder.apply(weights_init)
 
-# Initialize MSELoss function (L2 loss because assignment requires either L1 or L2 loss)
+# Initialize MSE Loss and Adam optimizer 
 criterion = nn.MSELoss()
-
-# Setup an Adam optimizer
 optimizer = optim.Adam(autoencoder.parameters(), lr=lr, betas=(beta1, beta2))
 
-"""Now it's time to train our network!"""
+logger.debug("Starting training loop")
+train_losses = []
 
-print("Starting Training Loop...")
-
-# For each epoch
 for epoch in range(num_epochs):
-    # For each batch in the dataloader
     for i, data in enumerate(dataloader, 0):
-        
-        # format batch
-        real_cpu = data[0].to(device)
-        b_size = real_cpu.size(0)
 
-        # the labels are in our case the real images: How far are our generated images away from the original ones
+        # retrieve batch
         img, _ = data
-        img = Variable(img)
-
+        img = img.to(device)
+        
         # forward pass
-        output = autoencoder(real_cpu)
+        output = autoencoder(img)
         loss = criterion(output, img)
 
         # backward pass
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        train_losses.append(loss.detach())
 
-        print('epoch [{}/{}], loss:{:.4f}'
-          .format(epoch+1, num_epochs, loss.data[0]))
-        if epoch % 10 == 0:
-            pic = to_img(output.cpu().data)
-            save_image(pic, './dc_img/image_{}.png'.format(epoch))
+        # Output training stats
+        if i % 50 == 0:
+            logger.debug(f"[{epoch}/{num_epochs}][{i}/{len(dataloader)}]\t Training Loss: {loss.item()}")
