@@ -26,7 +26,7 @@ dataroot = "/home/dcor/ronmokady/workshop20"
 logger.debug(f"Dataroot is {dataroot}")
 
 workers = 8        # Number of workers for dataloader
-batch_size = 8     # Batch size during training (assignment requirement > 2)
+batch_size = 2     # Batch size during training (assignment requirement > 2)
 image_size = 128   # Spatial size of training images (assignment requirement 128x128)
 nc = 3             # Number of channels in the training images (RGB)
 nz = 256           # Size of latent vector z (assigment requirement 256)
