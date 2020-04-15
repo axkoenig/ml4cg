@@ -8,9 +8,11 @@ import torch.nn as nn
 import torch.nn.parallel
 import torch.optim as optim
 import torch.utils.data
+
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
 import torchvision.utils as vutils
+from torch.utils.tensorboard import SummaryWriter
 
 # Logger setup
 logFormatter = logging.Formatter("%(asctime)s - %(name)s - [%(levelname)s]  %(message)s")
@@ -22,8 +24,9 @@ logger.setLevel(logging.DEBUG)
 logger.debug("Starting program")
 
 # Root directory for dataset
-dataroot = "/home/dcor/ronmokady/workshop20/team6/ml4cg/data"
-logger.debug(f"Dataroot is {dataroot}")
+DATAROOT = "/home/dcor/ronmokady/workshop20/team6/ml4cg/data"
+LOG_DIR = "logs"
+logger.debug(f"Dataroot is {DATAROOT}")
 
 workers = 8        # Number of workers for dataloader
 batch_size = 16    # Batch size during training (assignment requirement > 2)
@@ -40,7 +43,7 @@ ngpu = 2           # Number of GPUs available. Use 0 for CPU mode
 
 # Resize and center-crop images, normalize all channels
 logger.debug(f"Loading dataset with {workers} workers")
-dataset = dset.ImageFolder(root=dataroot,
+dataset = dset.ImageFolder(root=DATAROOT,
                            transform=transforms.Compose([
                                transforms.Resize(image_size),
                                transforms.CenterCrop(image_size),
@@ -154,7 +157,17 @@ def weights_init(m):
         nn.init.normal_(m.weight.data, 1.0, 0.02)
         nn.init.constant_(m.bias.data, 0)
 
-autoencoder = Autoencoder(ngpu).to(device)
+autoencoder = Autoencoder(ngpu)
+
+# Setup tensorboard visualizer and output some training images
+writer = SummaryWriter(LOG_DIR)
+dataiter = iter(dataloader)
+images = dataiter.next()[0]
+grid = vutils.make_grid(images)
+writer.add_image("A batch of training images", grid, 0)
+writer.add_graph(autoencoder, images)
+
+autoencoder = autoencoder.to(device)
 
 # Handle multi-gpu if desired
 if (device.type == 'cuda') and (ngpu > 1):
@@ -189,5 +202,13 @@ for epoch in range(num_epochs):
         # Output training stats
         if i % 50 == 0:
             logger.debug(f"[{epoch}/{num_epochs}][{i}/{len(dataloader)}]\t Training Loss: {loss.item()}")
+            writer.add_scalar("Loss/train", loss.item(), i)
+
+            # take first four images of a batch and compare input and output directly
+            if batch_size >= 4:
+                grid_in = vutils.make_grid(batch[:4])
+                grid_out = vutils.make_grid(output[:4])
+                grid_both = torch.cat((grid_in, grid_out), 1)
+                writer.add_image("Input and reconstruction", grid_both, 0)
 
 logger.debug("Training finished")
