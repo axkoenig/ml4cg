@@ -7,6 +7,7 @@ tutorials/data/
 tutorials/cifar_net.pth
 data/
 */logs/
+*/lightning_logs/
 
 # C extensions
 *.so

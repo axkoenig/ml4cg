@@ -1,4 +1,4 @@
-__author__ = 'Alexander Koenig, Li Nguyen'
+__author__ = 'Alexander Koenig and Li Nguyen'
 
 import logging
 
@@ -60,23 +60,15 @@ device = torch.device("cuda:0" if (
 
 logger.debug(f"Device you are running is \"{device}\"")
 
-# TODO Train / Val split
-# TODO Plot some training images (do this with Tensorboard)
-# TODO Save models
-# real_batch = next(iter(dataloader))
-# plt.figure(figsize=(8,8))
-# plt.axis("off")
-# plt.title("Training Images")
-# plt.imshow(np.transpose(vutils.make_grid(real_batch[0].to(device)[:64], padding=2, normalize=True).cpu(),(1,2,0)))         
- 
-# Reminders:
-# Conv2d(in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True)
-# out_dims = (in_dims - kernel_size + 2*padding) / 2 + 1 
-
 class Autoencoder(nn.Module):
     def __init__(self, ngpu):
         super(Autoencoder, self).__init__()
         self.ngpu = ngpu
+        
+        # Reminders:
+        # Conv2d(in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True)
+        # out_dims = (in_dims - kernel_size + 2*padding) / 2 + 1 
+
         self.encoder = nn.Sequential(
             # Layer 1: Input is (nc) x 128 x 128
             nn.Conv2d(nc, nfe, 4, 2, 1, bias=False),
