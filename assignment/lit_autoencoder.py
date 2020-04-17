@@ -1,23 +1,23 @@
-__author__ = 'Alexander Koenig and Li Nguyen'
+__author__ = 'Alexander Koenig, Li Nguyen'
 
-import logging
-
-import torch
-import torch.nn as nn
-import torch.nn.parallel
-import torch.utils.data
-
-import torchvision.datasets as dset
-import torchvision.transforms as transforms
-import torchvision.utils as vutils
-from torch.utils.tensorboard import SummaryWriter
+from argparse import ArgumentParser
 
 import pytorch_lightning as pl
-from pytorch_lightning import Trainer
-from torch.utils.data import DataLoader
-from torch.optim import Adam
+import torch
+import torch.nn as nn
 import torch.nn.functional as F
-from argparse import ArgumentParser
+import torchvision.transforms as transforms
+import torchvision.utils as vutils
+
+from pytorch_lightning import loggers
+from pytorch_lightning import Trainer
+from torch.optim import Adam
+from torch.utils.data import DataLoader, Subset
+from torchvision.datasets import ImageFolder
+
+# normalization constants
+MEAN = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
+STD = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
 
 class LitAutoencoder(pl.LightningModule):
     def __init__(self, hparams):
@@ -97,47 +97,117 @@ class LitAutoencoder(pl.LightningModule):
         x = self.decoder(x)
         return x
 
-    def train_dataloader(self):
+    def prepare_data(self):
+        
         transform = transforms.Compose([transforms.Resize(self.hparams.image_size), 
-                                       transforms.CenterCrop(self.hparams.image_size),
-                                       transforms.ToTensor(),
-                                       transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-        dataset = dset.ImageFolder(root=self.hparams.data_root, transform=transform)
+                                        transforms.CenterCrop(self.hparams.image_size),
+                                        transforms.ToTensor(),
+                                        transforms.Normalize(MEAN.tolist(), STD.tolist()),
+                                        ])
+        
+        dataset = ImageFolder(root=self.hparams.data_root, transform=transform)
 
-        return DataLoader(dataset, batch_size=self.hparams.batch_size, shuffle=True, num_workers=self.hparams.num_workers)
+        # train, val and test split taken from "list_eval_partition.txt" of original celebA paper
+        end_train_idx = 162770
+        end_val_idx = 182637
+        end_test_idx = len(dataset)
+
+        self.train_dataset = Subset(dataset, range(0, end_train_idx))
+        self.val_dataset = Subset(dataset, range(end_train_idx+1, end_val_idx)) 
+        self.test_dataset = Subset(dataset, range(end_val_idx+1, end_test_idx))
+
+    def train_dataloader(self):
+        return DataLoader(self.train_dataset, batch_size=self.hparams.batch_size, shuffle=True, num_workers=self.hparams.num_workers)
+
+    def val_dataloader(self):
+        return DataLoader(self.val_dataset, batch_size=self.hparams.batch_size, shuffle=True, num_workers=self.hparams.num_workers)
+
+    def test_dataloader(self):
+        return DataLoader(self.test_dataset, batch_size=self.hparams.batch_size, shuffle=True, num_workers=self.hparams.num_workers)
 
     def configure_optimizers(self):
         return Adam(self.parameters(), lr=self.hparams.lr, betas=(self.hparams.beta1, self.hparams.beta2))
 
+    def save_images(self, input, output, n):
+        """Saves n images from input and output batch
+        """
+        
+        # denormalize images
+        denormalization = transforms.Normalize((-MEAN / STD).tolist(), (1.0 / STD).tolist())
+        input = [denormalization(i) for i in input[:n]]
+        output = [denormalization(i) for i in output[:n]]
+
+        # make grids and save to logger
+        grid_top = vutils.make_grid(input)
+        grid_bottom = vutils.make_grid(output)
+        grid = torch.cat((grid_top, grid_bottom), 1)
+        self.logger.experiment.add_image("input_and_output", grid, 0)
+
     def training_step(self, batch, batch_idx):
+        
         x, _ = batch
         output = self(x)
         loss = F.mse_loss(output, x)
 
+        n = 4
+        
+        # save n input and output images at beginning of epoch
+        if self.hparams.batch_size >= n and batch_idx == 0:
+            self.save_images(x, output, n)
+        
         logs = {"loss": loss}
         return {"loss": loss, "log": logs}
 
+    def validation_step(self, batch, batch_idx):
+        return self._shared_eval(batch, batch_idx, "val")
+
+    def validation_epoch_end(self, outputs):
+        return self._shared_avg_eval(outputs, "val")
+    
+    def test_step(self, batch, batch_idx):
+        return self._shared_eval(batch, batch_idx, "test")
+
+    def test_epoch_end(self, outputs):
+        return self._shared_avg_eval(outputs, "test")
+
+    def _shared_eval(self, batch, batch_idx, prefix):
+        x, _ = batch
+        output = self(x)
+        loss = F.mse_loss(output, x)
+        logs = {f"{prefix}_loss": loss}
+        return {f"{prefix}_loss": loss, "log": logs}
+    
+    def _shared_avg_eval(self, outputs, prefix):
+        avg_loss = torch.stack([x[f'{prefix}_loss'] for x in outputs]).mean()
+        logs = {f'avg_{prefix}_loss': avg_loss}
+        return {f'avg_{prefix}_loss': avg_loss, 'log': logs}
+
 def main(hparams):
+    logger = loggers.TensorBoardLogger(hparams.log_dir)
+
     model = LitAutoencoder(hparams)
-    trainer = Trainer(gpus=hparams.gpus)
+    trainer = Trainer(logger=logger, gpus=hparams.gpus, max_epochs=hparams.num_epochs)
     trainer.fit(model)
+
+    trainer.test(model)
 
 if __name__ == "__main__":
     parser = ArgumentParser()
 
-    parser.add_argument("--data_root", type=str, default="/home/dcor/ronmokady/workshop20/team6/ml4cg/data")
+    parser.add_argument("--data_root", type=str, default="/home/dcor/ronmokady/workshop20/team6/ml4cg/data", help="Data root directory")
+    parser.add_argument("--log_dir", type=str, default="/home/dcor/ronmokady/workshop20/team6/ml4cg/assignment/logs", help="Logging directory")
     parser.add_argument("--num_workers", type=int, default=4, help="num_workers > 0 turns on multi-process data loading")
     parser.add_argument("--image_size", type=int, default=128, help="Spatial size of training images")
     parser.add_argument("--num_epochs", type=int, default=5, help="Number of training epochs")
-    parser.add_argument("--batch_size", type=int, default=16, help="Number of workers for dataloader")
+    parser.add_argument("--batch_size", type=int, default=16, help="Batch size during training")
     parser.add_argument("--nc", type=int, default=3, help="Number of channels in the training images")
     parser.add_argument("--nz", type=int, default=256, help="Size of latent vector z")
-    parser.add_argument("--nfe", type=int, default=64, help="Size of feature maps in encoder")
-    parser.add_argument("--nfd", type=int, default=64, help="Size of feature maps in decoder")
+    parser.add_argument("--nfe", type=int, default=16, help="Size of feature maps in encoder")
+    parser.add_argument("--nfd", type=int, default=16, help="Size of feature maps in decoder")
     parser.add_argument("--lr", type=float, default=0.0002, help="Learning rate for optimizer")
     parser.add_argument("--beta1", type=float, default=0.5, help="Beta1 hyperparameter for Adam optimizer")
     parser.add_argument("--beta2", type=float, default=0.999, help="Beta2 hyperparameter for Adam optimizer")
-    parser.add_argument("--gpus", type=int, default=2, help="Number of GPUs. Use 0 for CPU mode")
+    parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs. Use 0 for CPU mode")
 
     args = parser.parse_args()
     main(args)
