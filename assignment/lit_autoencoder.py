@@ -26,7 +26,7 @@ class LitAutoencoder(pl.LightningModule):
 
         self.encoder = nn.Sequential(
             # Conv2d(in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True)
-            # out_dims = (in_dims - kernel_size + 2*padding) / 2 + 1 
+            # out_dims = (in_dims - kernel_size + 2*padding) / stride + 1 
             # Layer 1: Input is (nc) x 128 x 128
             nn.Conv2d(hparams.nc, hparams.nfe, 4, 2, 1, bias=False),
             nn.BatchNorm2d(hparams.nfe),
@@ -129,9 +129,12 @@ class LitAutoencoder(pl.LightningModule):
         return Adam(self.parameters(), lr=self.hparams.lr, betas=(self.hparams.beta1, self.hparams.beta2))
 
     def save_images(self, input, output, n):
-        """Saves n images from input and output batch
+        """Saves a plot of n images from input and output batch
         """
-        
+
+        if self.hparams.batch_size < n:
+            raise IndexError("You are trying to plot more images than your batch contains!")
+
         # denormalize images
         denormalization = transforms.Normalize((-MEAN / STD).tolist(), (1.0 / STD).tolist())
         input = [denormalization(i) for i in input[:n]]
@@ -152,7 +155,7 @@ class LitAutoencoder(pl.LightningModule):
         n = 4
         
         # save n input and output images at beginning of epoch
-        if self.hparams.batch_size >= n and batch_idx == 0:
+        if batch_idx == 0:
             self.save_images(x, output, n)
         
         logs = {"loss": loss}
@@ -186,7 +189,7 @@ def main(hparams):
     logger = loggers.TensorBoardLogger(hparams.log_dir)
 
     model = LitAutoencoder(hparams)
-    trainer = Trainer(logger=logger, gpus=hparams.gpus, max_epochs=hparams.num_epochs)
+    trainer = Trainer(logger=logger, gpus=hparams.gpus, max_epochs=hparams.max_epochs)
     trainer.fit(model)
 
     trainer.test(model)
@@ -198,14 +201,14 @@ if __name__ == "__main__":
     parser.add_argument("--log_dir", type=str, default="/home/dcor/ronmokady/workshop20/team6/ml4cg/assignment/logs", help="Logging directory")
     parser.add_argument("--num_workers", type=int, default=4, help="num_workers > 0 turns on multi-process data loading")
     parser.add_argument("--image_size", type=int, default=128, help="Spatial size of training images")
-    parser.add_argument("--num_epochs", type=int, default=5, help="Number of training epochs")
-    parser.add_argument("--batch_size", type=int, default=16, help="Batch size during training")
+    parser.add_argument("--max_epochs", type=int, default=10, help="Number of maximum training epochs")
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size during training")
     parser.add_argument("--nc", type=int, default=3, help="Number of channels in the training images")
     parser.add_argument("--nz", type=int, default=256, help="Size of latent vector z")
     parser.add_argument("--nfe", type=int, default=16, help="Size of feature maps in encoder")
     parser.add_argument("--nfd", type=int, default=16, help="Size of feature maps in decoder")
     parser.add_argument("--lr", type=float, default=0.0002, help="Learning rate for optimizer")
-    parser.add_argument("--beta1", type=float, default=0.5, help="Beta1 hyperparameter for Adam optimizer")
+    parser.add_argument("--beta1", type=float, default=0.9, help="Beta1 hyperparameter for Adam optimizer")
     parser.add_argument("--beta2", type=float, default=0.999, help="Beta2 hyperparameter for Adam optimizer")
     parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs. Use 0 for CPU mode")
 
