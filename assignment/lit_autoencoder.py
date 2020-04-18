@@ -30,31 +30,31 @@ class LitAutoencoder(pl.LightningModule):
             # Layer 1: Input is (nc) x 128 x 128
             nn.Conv2d(hparams.nc, hparams.nfe, 4, 2, 1, bias=False),
             nn.BatchNorm2d(hparams.nfe),
-            nn.ReLU(True),
+            nn.LeakyReLU(True),
 
             # Layer 2: State size is (nfe) x 64 x 64
             nn.Conv2d(hparams.nfe, hparams.nfe * 2, 4, 2, 1, bias=False),
             nn.BatchNorm2d(hparams.nfe * 2),
-            nn.ReLU(True),
+            nn.LeakyReLU(True),
 
             # Layer 3: State size is (nfe*2) x 32 x 32
             nn.Conv2d(hparams.nfe * 2, hparams.nfe * 4, 4, 2, 1, bias=False),
             nn.BatchNorm2d(hparams.nfe * 4),
-            nn.ReLU(True),
+            nn.LeakyReLU(True),
 
             # Layer 4: State size is (nfe*4) x 16 x 16
             nn.Conv2d(hparams.nfe * 4, hparams.nfe * 8, 4, 2, 1, bias=False),
             nn.BatchNorm2d(hparams.nfe * 8),
-            nn.ReLU(True),
+            nn.LeakyReLU(True),
 
             # Layer 5: State size is (nfe*8) x 8 x 8
             nn.Conv2d(hparams.nfe * 8, hparams.nfe * 16, 4, 2, 1, bias=False),
             nn.BatchNorm2d(hparams.nfe * 16),
-            nn.ReLU(True),
+            nn.LeakyReLU(True),
             
             # Layer 6: State size is (nfe*16) x 4 x 4
             nn.Conv2d(hparams.nfe * 16, hparams.nz, 4, 1, 0, bias=False),
-            nn.ReLU(True)
+            nn.LeakyReLU(True)
 
             # Output size is (nz) x 1 x 1
         )
@@ -63,27 +63,27 @@ class LitAutoencoder(pl.LightningModule):
             # Layer 1: Input is (nz) x 1 x 1
             nn.ConvTranspose2d(hparams.nz, hparams.nfd * 16, 4, 1, 0, bias=False),
             nn.BatchNorm2d(hparams.nfd * 16),
-            nn.LeakyReLU(True),
+            nn.ReLU(True),
 
             # Layer 2: State size is (nfd*16) x 4 x 4
             nn.ConvTranspose2d(hparams.nfd * 16, hparams.nfd * 8, 4, 2, 1, bias=False),
             nn.BatchNorm2d(hparams.nfd * 8),
-            nn.LeakyReLU(True),
+            nn.ReLU(True),
 
             # Layer 3: State size is (nfd*8) x 8 x 8
             nn.ConvTranspose2d(hparams.nfd * 8, hparams.nfd * 4, 4, 2, 1, bias=False),
             nn.BatchNorm2d(hparams.nfd * 4),
-            nn.LeakyReLU(True),
+            nn.ReLU(True),
 
             # Layer 4: State size is (nfd*4) x 16 x 16
             nn.ConvTranspose2d(hparams.nfd * 4, hparams.nfd * 2, 4, 2, 1, bias=False),
             nn.BatchNorm2d(hparams.nfd * 2),
-            nn.LeakyReLU(True),
+            nn.ReLU(True),
 
             # Layer 5: State size is (nfd*2) x 32 x 32
             nn.ConvTranspose2d(hparams.nfd * 2, hparams.nfd, 4, 2, 1, bias=False),
             nn.BatchNorm2d(hparams.nfd),
-            nn.LeakyReLU(True),
+            nn.ReLU(True),
 
             # Layer 6: State size is (nfd) x 64 x 64
             nn.ConvTranspose2d(hparams.nfd, hparams.nc, 4, 2, 1, bias=False),
@@ -128,7 +128,7 @@ class LitAutoencoder(pl.LightningModule):
     def configure_optimizers(self):
         return Adam(self.parameters(), lr=self.hparams.lr, betas=(self.hparams.beta1, self.hparams.beta2))
 
-    def save_images(self, input, output, n):
+    def save_images(self, input, output, n, name):
         """Saves a plot of n images from input and output batch
         """
 
@@ -144,7 +144,7 @@ class LitAutoencoder(pl.LightningModule):
         grid_top = vutils.make_grid(input)
         grid_bottom = vutils.make_grid(output)
         grid = torch.cat((grid_top, grid_bottom), 1)
-        self.logger.experiment.add_image("input_and_output", grid, 0)
+        self.logger.experiment.add_image(name, grid, 0)
 
     def training_step(self, batch, batch_idx):
         
@@ -156,30 +156,38 @@ class LitAutoencoder(pl.LightningModule):
         
         # save n input and output images at beginning of epoch
         if batch_idx == 0:
-            self.save_images(x, output, n)
+            self.save_images(x, output, n, "train_input_output")
         
         logs = {"loss": loss}
         return {"loss": loss, "log": logs}
 
     def validation_step(self, batch, batch_idx):
-        return self._shared_eval(batch, batch_idx, "val")
+        x, _ = batch
+        output = self(x)
+        loss = F.mse_loss(output, x)
+        logs = {"val_loss": loss}
+        return {"val_loss": loss, "log": logs}
 
     def validation_epoch_end(self, outputs):
         return self._shared_avg_eval(outputs, "val")
     
     def test_step(self, batch, batch_idx):
-        return self._shared_eval(batch, batch_idx, "test")
+        x, _ = batch
+        output = self(x)
+        loss = F.mse_loss(output, x)
+
+        n = 4
+        
+        # save n input and output images at beginning of epoch
+        if batch_idx == 0:
+            self.save_images(x, output, n, "test_input_output")
+        
+        logs = {"test_loss": loss}
+        return {"test_loss": loss, "log": logs}
 
     def test_epoch_end(self, outputs):
         return self._shared_avg_eval(outputs, "test")
 
-    def _shared_eval(self, batch, batch_idx, prefix):
-        x, _ = batch
-        output = self(x)
-        loss = F.mse_loss(output, x)
-        logs = {f"{prefix}_loss": loss}
-        return {f"{prefix}_loss": loss, "log": logs}
-    
     def _shared_avg_eval(self, outputs, prefix):
         avg_loss = torch.stack([x[f'{prefix}_loss'] for x in outputs]).mean()
         logs = {f'avg_{prefix}_loss': avg_loss}
@@ -201,16 +209,16 @@ if __name__ == "__main__":
     parser.add_argument("--log_dir", type=str, default="/home/dcor/ronmokady/workshop20/team6/ml4cg/assignment/logs", help="Logging directory")
     parser.add_argument("--num_workers", type=int, default=4, help="num_workers > 0 turns on multi-process data loading")
     parser.add_argument("--image_size", type=int, default=128, help="Spatial size of training images")
-    parser.add_argument("--max_epochs", type=int, default=10, help="Number of maximum training epochs")
+    parser.add_argument("--max_epochs", type=int, default=15, help="Number of maximum training epochs")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size during training")
     parser.add_argument("--nc", type=int, default=3, help="Number of channels in the training images")
     parser.add_argument("--nz", type=int, default=256, help="Size of latent vector z")
-    parser.add_argument("--nfe", type=int, default=16, help="Size of feature maps in encoder")
-    parser.add_argument("--nfd", type=int, default=16, help="Size of feature maps in decoder")
+    parser.add_argument("--nfe", type=int, default=64, help="Size of feature maps in encoder")
+    parser.add_argument("--nfd", type=int, default=64, help="Size of feature maps in decoder")
     parser.add_argument("--lr", type=float, default=0.0002, help="Learning rate for optimizer")
     parser.add_argument("--beta1", type=float, default=0.9, help="Beta1 hyperparameter for Adam optimizer")
     parser.add_argument("--beta2", type=float, default=0.999, help="Beta2 hyperparameter for Adam optimizer")
-    parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs. Use 0 for CPU mode")
+    parser.add_argument("--gpus", type=int, default=2, help="Number of GPUs. Use 0 for CPU mode")
 
     args = parser.parse_args()
     main(args)
