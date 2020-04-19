@@ -19,77 +19,64 @@ from torchvision.datasets import ImageFolder
 MEAN = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
 STD = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
 
+class View(nn.Module):
+    def __init__(self, shape):
+        super().__init__()
+        self.shape = shape,
+
+    def forward(self, x):
+        return x.view(*self.shape)
+
 class LitAutoencoder(pl.LightningModule):
     def __init__(self, hparams):
         super().__init__()
         self.hparams = hparams
 
         self.encoder = nn.Sequential(
-            # Conv2d(in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True)
-            # out_dims = (in_dims - kernel_size + 2*padding) / stride + 1 
-            # Layer 1: Input is (nc) x 128 x 128
+            # input (nc) x 128 x 128
             nn.Conv2d(hparams.nc, hparams.nfe, 4, 2, 1, bias=False),
             nn.BatchNorm2d(hparams.nfe),
             nn.LeakyReLU(True),
+            nn.MaxPool2d(2),
+            # output (nfe) x 32 x 32
 
-            # Layer 2: State size is (nfe) x 64 x 64
             nn.Conv2d(hparams.nfe, hparams.nfe * 2, 4, 2, 1, bias=False),
             nn.BatchNorm2d(hparams.nfe * 2),
             nn.LeakyReLU(True),
+            nn.MaxPool2d(2),
+            # output (nfe*2) x 8 x 8
 
-            # Layer 3: State size is (nfe*2) x 32 x 32
             nn.Conv2d(hparams.nfe * 2, hparams.nfe * 4, 4, 2, 1, bias=False),
             nn.BatchNorm2d(hparams.nfe * 4),
             nn.LeakyReLU(True),
+            nn.MaxPool2d(2),
+            # output (nfe*4) x 2 x 2
 
-            # Layer 4: State size is (nfe*4) x 16 x 16
-            nn.Conv2d(hparams.nfe * 4, hparams.nfe * 8, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(hparams.nfe * 8),
-            nn.LeakyReLU(True),
-
-            # Layer 5: State size is (nfe*8) x 8 x 8
-            nn.Conv2d(hparams.nfe * 8, hparams.nfe * 16, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(hparams.nfe * 16),
-            nn.LeakyReLU(True),
-            
-            # Layer 6: State size is (nfe*16) x 4 x 4
-            nn.Conv2d(hparams.nfe * 16, hparams.nz, 4, 1, 0, bias=False),
-            nn.LeakyReLU(True)
-
-            # Output size is (nz) x 1 x 1
+            nn.Flatten()
+            # output (nfe*8) x 1 x 1
         )
 
-        self.decoder = nn.Sequential(             
-            # Layer 1: Input is (nz) x 1 x 1
-            nn.ConvTranspose2d(hparams.nz, hparams.nfd * 16, 4, 1, 0, bias=False),
-            nn.BatchNorm2d(hparams.nfd * 16),
-            nn.ReLU(True),
+        self.decoder = nn.Sequential(
+            # input (nfe*8) x 1 x 1
+            View((-1, hparams.nfd * 4, 2, 2)),
+            # output (nfe*4) x 2 x 2
 
-            # Layer 2: State size is (nfd*16) x 4 x 4
-            nn.ConvTranspose2d(hparams.nfd * 16, hparams.nfd * 8, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(hparams.nfd * 8),
-            nn.ReLU(True),
-
-            # Layer 3: State size is (nfd*8) x 8 x 8
-            nn.ConvTranspose2d(hparams.nfd * 8, hparams.nfd * 4, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(hparams.nfd * 4),
-            nn.ReLU(True),
-
-            # Layer 4: State size is (nfd*4) x 16 x 16
+            nn.UpsamplingNearest2d(scale_factor=2),
             nn.ConvTranspose2d(hparams.nfd * 4, hparams.nfd * 2, 4, 2, 1, bias=False),
             nn.BatchNorm2d(hparams.nfd * 2),
-            nn.ReLU(True),
+            nn.LeakyReLU(True),
+            # output (nfd*2) x 8 x 8
 
-            # Layer 5: State size is (nfd*2) x 32 x 32
+            nn.UpsamplingNearest2d(scale_factor=2),
             nn.ConvTranspose2d(hparams.nfd * 2, hparams.nfd, 4, 2, 1, bias=False),
             nn.BatchNorm2d(hparams.nfd),
-            nn.ReLU(True),
+            nn.LeakyReLU(True),
+            # output (nfd*2) x 32 x 32
 
-            # Layer 6: State size is (nfd) x 64 x 64
+            nn.UpsamplingNearest2d(scale_factor=2),
             nn.ConvTranspose2d(hparams.nfd, hparams.nc, 4, 2, 1, bias=False),
             nn.Tanh()
-
-            # Output size is (nc) x 128 x 128
+            # output (nc) x 128 x 128
         )
             
     def forward(self,x):
@@ -152,7 +139,7 @@ class LitAutoencoder(pl.LightningModule):
         output = self(x)
         loss = F.mse_loss(output, x)
 
-        n = 4
+        n = 16
         
         # save n input and output images at beginning of epoch
         if batch_idx == 0:
@@ -176,7 +163,7 @@ class LitAutoencoder(pl.LightningModule):
         output = self(x)
         loss = F.mse_loss(output, x)
 
-        n = 4
+        n = 16
         
         # save n input and output images at beginning of epoch
         if batch_idx == 0:
@@ -194,7 +181,7 @@ class LitAutoencoder(pl.LightningModule):
         return {f'avg_{prefix}_loss': avg_loss, 'log': logs}
 
 def main(hparams):
-    logger = loggers.TensorBoardLogger(hparams.log_dir, name=f"grid_bs{hparams.batch_size}_nf{hparams.nfe}")
+    logger = loggers.TensorBoardLogger(hparams.log_dir, name=f"max_grid_bs{hparams.batch_size}_lr{hparams.lr}")
 
     model = LitAutoencoder(hparams)
     trainer = Trainer(logger=logger, gpus=hparams.gpus, max_epochs=hparams.max_epochs)
@@ -205,16 +192,16 @@ def main(hparams):
 if __name__ == "__main__":
     parser = ArgumentParser()
 
-    parser.add_argument("--data_root", type=str, default="/home/dcor/ronmokady/workshop20/team6/ml4cg/data", help="Data root directory")
-    parser.add_argument("--log_dir", type=str, default="/home/dcor/ronmokady/workshop20/team6/ml4cg/assignment/logs", help="Logging directory")
+    parser.add_argument("--data_root", type=str, default="/specific/netapp5_3/rent_public/dcor-01-2021/ronmokady/workshop20/team6/ml4cg/data", help="Data root directory")
+    parser.add_argument("--log_dir", type=str, default="/specific/netapp5_3/rent_public/dcor-01-2021/ronmokady/workshop20/team6/ml4cg/assignment/logs", help="Logging directory")
     parser.add_argument("--num_workers", type=int, default=4, help="num_workers > 0 turns on multi-process data loading")
     parser.add_argument("--image_size", type=int, default=128, help="Spatial size of training images")
-    parser.add_argument("--max_epochs", type=int, default=10, help="Number of maximum training epochs")
+    parser.add_argument("--max_epochs", type=int, default=8, help="Number of maximum training epochs")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size during training")
     parser.add_argument("--nc", type=int, default=3, help="Number of channels in the training images")
     parser.add_argument("--nz", type=int, default=256, help="Size of latent vector z")
-    parser.add_argument("--nfe", type=int, default=64, help="Size of feature maps in encoder")
-    parser.add_argument("--nfd", type=int, default=64, help="Size of feature maps in decoder")
+    parser.add_argument("--nfe", type=int, default=16, help="Size of feature maps in encoder")
+    parser.add_argument("--nfd", type=int, default=16, help="Size of feature maps in decoder")
     parser.add_argument("--lr", type=float, default=0.0002, help="Learning rate for optimizer")
     parser.add_argument("--beta1", type=float, default=0.9, help="Beta1 hyperparameter for Adam optimizer")
     parser.add_argument("--beta2", type=float, default=0.999, help="Beta2 hyperparameter for Adam optimizer")
