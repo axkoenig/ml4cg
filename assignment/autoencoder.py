@@ -12,12 +12,13 @@ from pytorch_lightning import Trainer, loggers
 from torch.optim import Adam
 from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import ImageFolder
+from torchsummary import summary
 
 # normalization constants
 MEAN = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
 STD = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
 
-class LitAutoencoder(pl.LightningModule):
+class Autoencoder(pl.LightningModule):
     def __init__(self, hparams):
         super().__init__()
         self.hparams = hparams
@@ -50,6 +51,7 @@ class LitAutoencoder(pl.LightningModule):
             
             # input (nfe*16) x 4 x 4
             nn.Conv2d(hparams.nfe * 16, hparams.nz, 4, 1, 0, bias=False),
+            nn.BatchNorm2d(hparams.nz),
             nn.LeakyReLU(True)
             # output (nz) x 1 x 1
         )
@@ -185,10 +187,13 @@ class LitAutoencoder(pl.LightningModule):
 def main(hparams):
     logger = loggers.TensorBoardLogger(hparams.log_dir, name=f"final_bs{hparams.batch_size}_nf{hparams.nfe}")
 
-    model = LitAutoencoder(hparams)
+    model = Autoencoder(hparams)
+
+    # print detailed summary with estimated network size
+    summary(model, (hparams.nc, hparams.image_size, hparams.image_size), device="cpu")
+    
     trainer = Trainer(logger=logger, gpus=hparams.gpus, max_epochs=hparams.max_epochs)
     trainer.fit(model)
-
     trainer.test(model)
 
 if __name__ == "__main__":
