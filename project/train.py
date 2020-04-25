@@ -29,16 +29,30 @@ class Net(pl.LightningModule):
         self.encoder_b = EncoderB(hparams)
         self.generator = Generator(hparams)
 
-    def forward(self, x, y):
+    def forward(self, x1, x2):
+        """Forward pass of network
+
+        Note that for brevity we use a slightly different notation than in the
+        presentation. The mixed images m1 and m2 correspond to xhat_a1_b2 and 
+        xhat_a2_b1 in the presentation, respectively. The reconstructed images
+        r1 and r2 correspond to xhat_1 and xhat_2, respectively. 
+
+        Args:
+            x1 (tensor): first input image
+            x2 (tensor): second input image
+
+        Returns:
+            tuple: both reconstructed images
+        """
         # disassembly of original images
-        x_a = self.encoder_a(x)
-        x_b = self.encoder_b(x)
-        y_a = self.encoder_a(y)
-        y_b = self.encoder_b(y)
+        x1_a = self.encoder_a(x1)
+        x1_b = self.encoder_b(x1)
+        x2_a = self.encoder_a(x2)
+        x2_b = self.encoder_b(x2)
 
         # generation of mixed images
-        m1 = self.generator(x_a, y_b)
-        m2 = self.generator(x_b, y_a)
+        m1 = self.generator(x1_a, x2_b)
+        m2 = self.generator(x2_a, x1_b)
 
         # disassembly of mixed images 
         m1_a = self.encoder_a(m1)
@@ -126,8 +140,8 @@ def main(hparams):
     model = Net(hparams)
 
     # print detailed summary with estimated network size
-    summary(model, [(hparams.nc, hparams.image_size, hparams.image_size), 
-                    (hparams.nc, hparams.image_size, hparams.image_size)], device="cpu")
+    # summary(model, [(hparams.nc, hparams.image_size, hparams.image_size), 
+    #                 (hparams.nc, hparams.image_size, hparams.image_size)], device="cpu")
     
     trainer = Trainer(logger=logger, gpus=hparams.gpus, max_epochs=hparams.max_epochs)
     trainer.fit(model)
