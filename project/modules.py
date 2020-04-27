@@ -4,8 +4,27 @@ import torch.nn as nn
 class EncoderA(nn.Module):
     def __init__(self, hparams):
         super().__init__()
-        # TODO: Input (3 * 128 * 128), Output (512 * 2 * 2)
-        self.net = nn.Sequential()
+        # Input (3 * 128 * 128), Output (512 * 2 * 2)
+        self.net = nn.Sequential(
+            nn.Conv2d(3, 32, 4, 2, 1),
+            nn.BatchNorm2d(32),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(32, 64, 4, 2, 1),
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(64, 128, 4, 2, 1),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(128, 256, 4, 2, 1),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(256, 512, 4, 2, 1),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(512, 512, 4, 2, 1),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
 
     def forward(self, x):
         return self.net(x)
@@ -13,10 +32,29 @@ class EncoderA(nn.Module):
 class EncoderB(nn.Module):
     def __init__(self, hparams):
         super().__init__()
-        # TODO: Input (3 * 128 * 128), Output (512 * 2 * 2)
-        self.net = nn.Sequential()
+        # Input (3 * 128 * 128), Output (512 * 2 * 2)
+        self.net = nn.Sequential(
+            nn.Conv2d(3, 32, 4, 2, 1),
+            nn.BatchNorm2d(32),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(32, 64, 4, 2, 1),
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(64, 128, 4, 2, 1),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(128, 256, 4, 2, 1),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(256, 512, 4, 2, 1),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(512, 512, 4, 2, 1),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
 
-    def forward(self, x):
+    def forward(self, x):        
         return self.net(x)
 
 class Generator(nn.Module):
