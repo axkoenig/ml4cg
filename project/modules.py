@@ -5,7 +5,7 @@ class EncoderA(nn.Module):
     def __init__(self, hparams):
         super().__init__()
         # Input (3 * 128 * 128), Output (512 * 2 * 2)
-        self.full = nn.Sequential(
+        self.net = nn.Sequential(
             nn.Conv2d(3, 32, 4, 2, 1),
             nn.BatchNorm2d(32),
             nn.LeakyReLU(0.2, inplace=True),
@@ -26,16 +26,14 @@ class EncoderA(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
         )
 
-    def forward(self, net):
-        net = self.full(net)
-        print(net.shape) # gives us required shape 2x2x512
-        return net
+    def forward(self, x):
+        return self.net(x)
 
 class EncoderB(nn.Module):
     def __init__(self, hparams):
         super().__init__()
         # Input (3 * 128 * 128), Output (512 * 2 * 2)
-        self.full = nn.Sequential(
+        self.net = nn.Sequential(
             nn.Conv2d(3, 32, 4, 2, 1),
             nn.BatchNorm2d(32),
             nn.LeakyReLU(0.2, inplace=True),
@@ -56,10 +54,8 @@ class EncoderB(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
         )
 
-    def forward(self, net):
-        net = self.full(net)
-        print(net.shape) # gives us required shape 2x2x512
-        return net
+    def forward(self, x):        
+        return self.net(x)
 
 class Generator(nn.Module):
     def __init__(self, hparams):
