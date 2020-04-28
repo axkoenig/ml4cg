@@ -149,9 +149,8 @@ def main(hparams):
     model = Net(hparams)
 
     # print detailed summary with estimated network size
-    # summary(model,input_size=[(hparams.batch_size, hparams.nc, hparams.img_size, hparams.img_size), 
-    #                           (hparams.batch_size, hparams.nc, hparams.img_size, hparams.img_size)],
-    #               device="cpu")
+    summary(model, input_size=[(hparams.nc, hparams.img_size, hparams.img_size), 
+                               (hparams.nc, hparams.img_size, hparams.img_size)], device="cpu")
     
     trainer = Trainer(logger=logger, gpus=hparams.gpus, max_epochs=hparams.max_epochs)
     trainer.fit(model)

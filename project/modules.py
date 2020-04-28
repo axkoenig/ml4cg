@@ -37,7 +37,8 @@ class Encoder(nn.Module):
 
     def forward(self, x):
         x = self.net(x)
-        x = x.view(hparams.batch_size, -1)
+        batch_size = x.shape[0]
+        x = x.view(batch_size, -1)
         return x
 
 
