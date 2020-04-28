@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import ImageFolder
 from torchsummary import summary
 
-from modules import EncoderA, EncoderB, Generator
+from modules import Encoder, Modulation, Generator
 
 # normalization constants
 MEAN = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
@@ -27,6 +27,7 @@ class Net(pl.LightningModule):
 
         self.encoder_a = Encoder(hparams)
         self.encoder_b = Encoder(hparams)
+        self.modulation = Modulation(hparams)
         self.generator = Generator(hparams)
 
     def forward(self, x1, x2):
@@ -50,9 +51,13 @@ class Net(pl.LightningModule):
         x2_a = self.encoder_a(x2)
         x2_b = self.encoder_b(x2)
 
-        # generation of mixed images
-        m1 = self.generator(x1_a, x2_b)
-        m2 = self.generator(x2_a, x1_b)
+        # calculate modulation parameters
+        x1_a_ada = self.modulation(x1_a)
+        x2_a_ada = self.modulation(x2_a)
+
+        # generate mixed images
+        m1 = self.generator(x2_b, x1_a_ada)
+        m2 = self.generator(x1_b, x2_a_ada)
 
         # disassembly of mixed images 
         m1_a = self.encoder_a(m1)
@@ -60,16 +65,20 @@ class Net(pl.LightningModule):
         m2_a = self.encoder_a(m2)
         m2_b = self.encoder_b(m2)
 
-        # generation of reconstructed images
-        r1 = self.generator(m1_a, m2_b)
-        r2 = self.generator(m1_b, m2_a)
+        # calculate modulation parameters
+        m1_a_ada = self.modulation(m1_a)
+        m2_a_ada = self.modulation(m2_a)
+
+        # generate reconstructed images
+        r1 = self.generator(m2_b, m1_a_ada)
+        r2 = self.generator(m1_b, m2_a_ada)
 
         return r1, r2
 
     def prepare_data(self):
         
-        transform = transforms.Compose([transforms.Resize(self.hparams.image_size), 
-                                        transforms.CenterCrop(self.hparams.image_size),
+        transform = transforms.Compose([transforms.Resize(self.hparams.img_size), 
+                                        transforms.CenterCrop(self.hparams.img_size),
                                         transforms.ToTensor(),
                                         transforms.Normalize(MEAN.tolist(), STD.tolist()),
                                         ])
@@ -140,8 +149,9 @@ def main(hparams):
     model = Net(hparams)
 
     # print detailed summary with estimated network size
-    # summary(model, [(hparams.nc, hparams.image_size, hparams.image_size), 
-    #                 (hparams.nc, hparams.image_size, hparams.image_size)], device="cpu")
+    # summary(model,input_size=[(hparams.batch_size, hparams.nc, hparams.img_size, hparams.img_size), 
+    #                           (hparams.batch_size, hparams.nc, hparams.img_size, hparams.img_size)],
+    #               device="cpu")
     
     trainer = Trainer(logger=logger, gpus=hparams.gpus, max_epochs=hparams.max_epochs)
     trainer.fit(model)
@@ -153,16 +163,21 @@ if __name__ == "__main__":
     parser.add_argument("--data_root", type=str, default="/specific/netapp5_3/rent_public/dcor-01-2021/ronmokady/workshop20/team6/ml4cg/data", help="Data root directory")
     parser.add_argument("--log_dir", type=str, default="/specific/netapp5_3/rent_public/dcor-01-2021/ronmokady/workshop20/team6/ml4cg/project/logs", help="Logging directory")
     parser.add_argument("--num_workers", type=int, default=4, help="num_workers > 0 turns on multi-process data loading")
-    parser.add_argument("--image_size", type=int, default=128, help="Spatial size of training images")
+    parser.add_argument("--img_size", type=int, default=128, help="Spatial size of training images")
     parser.add_argument("--max_epochs", type=int, default=8, help="Number of maximum training epochs")
-    parser.add_argument("--batch_size", type=int, default=32, help="Batch size during training")
-    parser.add_argument("--nc", type=int, default=3, help="Number of channels in the training images")
-    parser.add_argument("--nfe", type=int, default=32, help="Number of feature maps in encoders")
-    parser.add_argument("--nz", type=int, default=256, help="Size of latent codes after encoders")
+    parser.add_argument("--batch_size", type=int, default=16, help="Batch size during training")
     parser.add_argument("--lr", type=float, default=0.0002, help="Learning rate for optimizer")
     parser.add_argument("--beta1", type=float, default=0.9, help="Beta1 hyperparameter for Adam optimizer")
     parser.add_argument("--beta2", type=float, default=0.999, help="Beta2 hyperparameter for Adam optimizer")
     parser.add_argument("--gpus", type=int, default=2, help="Number of GPUs. Use 0 for CPU mode")
+    parser.add_argument("--nc", type=int, default=3, help="Number of channels in the training images")
+    parser.add_argument("--nfe", type=int, default=32, help="Number of feature maps in encoders")
+    parser.add_argument("--nz", type=int, default=256, help="Size of latent codes after encoders")
+    parser.add_argument("--n_adain", type=int, default=4, help="Number of AdaIn layers in generator")
+    parser.add_argument("--dim_adain", type=int, default=256, help="Dimension of AdaIn layer in generator")
+    
+    ### NOTES
+    # we use same class and content code size, whereas LORD used content_dim=128, class_dim=256
 
     args = parser.parse_args()
     main(args)
