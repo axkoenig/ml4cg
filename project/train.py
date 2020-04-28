@@ -25,15 +25,9 @@ class Net(pl.LightningModule):
         super().__init__()
         self.hparams = hparams
 
-        self.encoder_a = EncoderA(hparams)
-        self.encoder_b = EncoderB(hparams)
+        self.encoder_a = Encoder(hparams)
+        self.encoder_b = Encoder(hparams)
         self.generator = Generator(hparams)
-        self.mlp = MLP(64,
-                       get_num_adain_params(self.generator),
-                       256,
-                       3,
-                       norm='none',
-                       activ='relu')
 
     def forward(self, x1, x2):
         """Forward pass of network
@@ -163,6 +157,8 @@ if __name__ == "__main__":
     parser.add_argument("--max_epochs", type=int, default=8, help="Number of maximum training epochs")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size during training")
     parser.add_argument("--nc", type=int, default=3, help="Number of channels in the training images")
+    parser.add_argument("--nfe", type=int, default=32, help="Number of feature maps in encoders")
+    parser.add_argument("--nz", type=int, default=256, help="Size of latent codes after encoders")
     parser.add_argument("--lr", type=float, default=0.0002, help="Learning rate for optimizer")
     parser.add_argument("--beta1", type=float, default=0.9, help="Beta1 hyperparameter for Adam optimizer")
     parser.add_argument("--beta2", type=float, default=0.999, help="Beta2 hyperparameter for Adam optimizer")
