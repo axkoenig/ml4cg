@@ -28,6 +28,12 @@ class Net(pl.LightningModule):
         self.encoder_a = EncoderA(hparams)
         self.encoder_b = EncoderB(hparams)
         self.generator = Generator(hparams)
+        self.mlp = MLP(64,
+                       get_num_adain_params(self.generator),
+                       256,
+                       3,
+                       norm='none',
+                       activ='relu')
 
     def forward(self, x1, x2):
         """Forward pass of network
