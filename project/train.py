@@ -20,6 +20,7 @@ from modules import Encoder, Modulation, Generator
 MEAN = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
 STD = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
 
+
 class Net(pl.LightningModule):
     def __init__(self, hparams):
         super().__init__()
@@ -59,7 +60,7 @@ class Net(pl.LightningModule):
         m1 = self.generator(x2_b, x1_a_ada)
         m2 = self.generator(x1_b, x2_a_ada)
 
-        # disassembly of mixed images 
+        # disassembly of mixed images
         m1_a = self.encoder_a(m1)
         m1_b = self.encoder_b(m1)
         m2_a = self.encoder_a(m2)
@@ -73,10 +74,23 @@ class Net(pl.LightningModule):
         r1 = self.generator(m2_b, m1_a_ada)
         r2 = self.generator(m1_b, m2_a_ada)
 
-        return r1, r2
+        return {
+            "x1_a": x1_a,
+            "x1_b": x1_b,
+            "x2_a": x2_a,
+            "x2_b": x2_b,
+            "m1": m1,
+            "m2": m2,
+            "m1_a": m1_a,
+            "m1_b": m1_b,
+            "m2_a": m2_a,
+            "m2_b": m2_b,
+            "r1": r1,
+            "r2": r2,
+        }
 
     def prepare_data(self):
-        
+
         transform = transforms.Compose([transforms.Resize(self.hparams.img_size), 
                                         transforms.CenterCrop(self.hparams.img_size),
                                         transforms.ToTensor(),
@@ -91,20 +105,20 @@ class Net(pl.LightningModule):
         end_test_idx = len(dataset)
 
         self.train_dataset = Subset(dataset, range(0, end_train_idx))
-        self.val_dataset = Subset(dataset, range(end_train_idx+1, end_val_idx)) 
-        self.test_dataset = Subset(dataset, range(end_val_idx+1, end_test_idx))
+        self.val_dataset = Subset(dataset, range(end_train_idx + 1, end_val_idx))
+        self.test_dataset = Subset(dataset, range(end_val_idx + 1, end_test_idx))
 
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, batch_size=self.hparams.batch_size, shuffle=True, num_workers=self.hparams.num_workers)
+        return DataLoader(self.train_dataset, batch_size=self.hparams.batch_size, shuffle=True, num_workers=self.hparams.num_workers,)
 
     def val_dataloader(self):
-        return DataLoader(self.val_dataset, batch_size=self.hparams.batch_size, shuffle=True, num_workers=self.hparams.num_workers)
+        return DataLoader(self.val_dataset, batch_size=self.hparams.batch_size, shuffle=True, num_workers=self.hparams.num_workers,)
 
     def test_dataloader(self):
-        return DataLoader(self.test_dataset, batch_size=self.hparams.batch_size, shuffle=True, num_workers=self.hparams.num_workers)
+        return DataLoader(self.test_dataset, batch_size=self.hparams.batch_size, shuffle=True, num_workers=self.hparams.num_workers,)
 
     def configure_optimizers(self):
-        return Adam(self.parameters(), lr=self.hparams.lr, betas=(self.hparams.beta1, self.hparams.beta2))
+        return Adam(self.parameters(), lr=self.hparams.lr, betas=(self.hparams.beta1, self.hparams.beta2),)
 
     def save_images(self, x, output, name, n=8):
         """Saves a plot of n images from input and output batch
@@ -136,13 +150,13 @@ class Net(pl.LightningModule):
 
     def validation_epoch_end(self, outputs):
         return self._shared_eval_epoch_end(outputs, "val")
-    
+
     def test_step(self, batch, batch_idx):
         return self._shared_eval(batch, batch_idx, prefix="test", plot=True)
 
     def test_epoch_end(self, outputs):
         return self._shared_eval_epoch_end(outputs, "test")
-    
+
     def _shared_eval(self, batch, batch_idx, prefix="", plot=False):
         # retrieve batch and split in half
         imgs, _ = batch
@@ -151,9 +165,14 @@ class Net(pl.LightningModule):
         x2 = imgs[split_idx:]
 
         # forward pass
-        r1, r2 = self(x1, x2)
-        loss = F.mse_loss(x1, r1) + F.mse_loss(x2, r2)
-        
+        out = self(x1, x2)
+        reconstr_loss = F.l1_loss(x1, out["r1"]) + F.l1_loss(x2, out["r2"])
+        cycle_loss_a = F.mse_loss(out["x1_a"], out["m1_a"]) + F.mse_loss(out["x2_a"], out["m2_a"])
+        cycle_loss_b = F.mse_loss(out["x1_b"], out["m2_b"]) + F.mse_loss(out["x2_b"], out["m1_b"])
+        loss = (self.hparams.alpha * reconstr_loss 
+                + self.hparams.gamma * cycle_loss_a 
+                + self.hparams.delta * cycle_loss_b)
+
         # add underscore to prefix
         if prefix:
             prefix = prefix + "_"
@@ -165,25 +184,25 @@ class Net(pl.LightningModule):
         avg_loss = torch.stack([x[f"{prefix}_loss"] for x in outputs]).mean()
         logs = {f"avg_{prefix}_loss": avg_loss}
         return {f"avg_{prefix}_loss": avg_loss, "log": logs}
-    
-        
+
+
 def main(hparams):
     logger = loggers.TensorBoardLogger(hparams.log_dir, name="naive_1")
 
     model = Net(hparams)
 
     # print detailed summary with estimated network size
-    summary(model, input_size=[(hparams.nc, hparams.img_size, hparams.img_size), 
-                               (hparams.nc, hparams.img_size, hparams.img_size)], device="cpu")
-    
+    summary(model, input_size=[(hparams.nc, hparams.img_size, hparams.img_size), (hparams.nc, hparams.img_size, hparams.img_size),], device="cpu")
+
     if hparams.batch_size < 2:
-            raise IndexError("Batch size must be at least 2 because we need 2 input images.")
+        raise IndexError("Batch size must be at least 2 because we need 2 input images.")
     if hparams.batch_size % 2 != 0:
-            raise IndexError("Batch size must be divisble by 2 because we feed pairs of images to the network.")
-    
+        raise IndexError("Batch size must be divisble by 2 because we feed pairs of images to the network.")
+
     trainer = Trainer(logger=logger, gpus=hparams.gpus, max_epochs=hparams.max_epochs)
     trainer.fit(model)
-    # trainer.test(model)
+    trainer.test(model)
+
 
 if __name__ == "__main__":
     parser = ArgumentParser()
@@ -203,7 +222,10 @@ if __name__ == "__main__":
     parser.add_argument("--nz", type=int, default=256, help="Size of latent codes after encoders")
     parser.add_argument("--n_adain", type=int, default=4, help="Number of AdaIn layers in generator")
     parser.add_argument("--dim_adain", type=int, default=256, help="Dimension of AdaIn layer in generator")
-    
+    parser.add_argument("--alpha", type=float, default=1.0, help="Weight of reconstruction loss")
+    parser.add_argument("--gamma", type=float, default=0.5, help="Weight of cycle loss for features a")
+    parser.add_argument("--delta", type=float, default=0.5, help="Weight of cycle loss for features b")
+
     ### NOTES
     # we use same class and content code size, whereas LORD used content_dim=128, class_dim=256
 
