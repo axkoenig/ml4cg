@@ -1,4 +1,4 @@
-__author__ = 'Alexander Koenig, Li Nguyen'
+__author__ = "Alexander Koenig, Li Nguyen"
 
 from argparse import ArgumentParser
 
@@ -129,19 +129,43 @@ class Net(pl.LightningModule):
         self.logger.experiment.add_image(name, grid)
 
     def training_step(self, batch, batch_idx):
-        return None
+        return self._shared_eval(batch, batch_idx)
 
     def validation_step(self, batch, batch_idx):
-        return None
+        return self._shared_eval(batch, batch_idx, prefix="val", plot=True)
 
     def validation_epoch_end(self, outputs):
-        return None
+        return self._shared_eval_epoch_end(outputs, "val")
     
     def test_step(self, batch, batch_idx):
-        return None
+        return self._shared_eval(batch, batch_idx, prefix="test", plot=True)
 
     def test_epoch_end(self, outputs):
-        return None
+        return self._shared_eval_epoch_end(outputs, "test")
+    
+    def _shared_eval(self, batch, batch_idx, prefix="", plot=False):
+        # retrieve batch and split in half
+        imgs, _ = batch
+        split_idx = imgs.shape[0] // 2
+        x1 = imgs[:split_idx]
+        x2 = imgs[split_idx:]
+
+        # forward pass
+        r1, r2 = self(x1, x2)
+        loss = F.mse_loss(x1, r1) + F.mse_loss(x2, r2)
+        
+        # add underscore to prefix
+        if prefix:
+            prefix = prefix + "_"
+
+        logs = {f"{prefix}loss": loss}
+        return {f"{prefix}loss": loss, "log": logs}
+
+    def _shared_eval_epoch_end(self, outputs, prefix):
+        avg_loss = torch.stack([x[f"{prefix}_loss"] for x in outputs]).mean()
+        logs = {f"avg_{prefix}_loss": avg_loss}
+        return {f"avg_{prefix}_loss": avg_loss, "log": logs}
+    
         
 def main(hparams):
     logger = loggers.TensorBoardLogger(hparams.log_dir, name="naive_1")
@@ -152,9 +176,14 @@ def main(hparams):
     summary(model, input_size=[(hparams.nc, hparams.img_size, hparams.img_size), 
                                (hparams.nc, hparams.img_size, hparams.img_size)], device="cpu")
     
+    if hparams.batch_size < 2:
+            raise IndexError("Batch size must be at least 2 because we need 2 input images.")
+    if hparams.batch_size % 2 != 0:
+            raise IndexError("Batch size must be divisble by 2 because we feed pairs of images to the network.")
+    
     trainer = Trainer(logger=logger, gpus=hparams.gpus, max_epochs=hparams.max_epochs)
     trainer.fit(model)
-    trainer.test(model)
+    # trainer.test(model)
 
 if __name__ == "__main__":
     parser = ArgumentParser()
