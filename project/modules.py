@@ -130,7 +130,6 @@ class Modulation(nn.Module):
         )
 
     def forward(self, x):
-        # import pdb; pdb.set_trace()
         adain_all = torch.cat([f(x) for f in self.adain_per_layer], dim=-1)
         adain_params = adain_all.reshape(
             -1, self.hparams.n_adain, self.hparams.dim_adain, 2

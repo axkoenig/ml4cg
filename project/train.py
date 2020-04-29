@@ -44,7 +44,7 @@ class Net(pl.LightningModule):
             x2 (tensor): second input image
 
         Returns:
-            tuple: both reconstructed images
+            dict: codes, mixed and reconstruced images
         """
         # disassembly of original images
         x1_a = self.encoder_a(x1)
@@ -120,27 +120,50 @@ class Net(pl.LightningModule):
     def configure_optimizers(self):
         return Adam(self.parameters(), lr=self.hparams.lr, betas=(self.hparams.beta1, self.hparams.beta2),)
 
-    def save_images(self, x, output, name, n=8):
-        """Saves a plot of n images from input and output batch
-        x         inputs batch
-        output    output batch
-        name      name of plot
-        n         number of pictures to compare
+    def plot(self, input_batches, mixed_batches, reconstr_batches, prefix, n=2):
+        """Plots n triplets of ((x1, x2), (m1, m2), (r1, r2)) 
+
+        Args:
+            input_batches (tuple): Two batches of input images
+            mixed_batches (tuple): Two batches of mixed images
+            reconstr_batches (tuple): Two batches of reconstructed images
+            prefix (str): Prefix for plot name
+            n (int, optional): How many triplets to plot. Defaults to 2.
+
+        Raises:
+            IndexError: If n exceeds batch size
         """
 
-        if self.hparams.batch_size < n:
-            raise IndexError("You are trying to plot more images than your batch contains!")
-
+        if input_batches[0].shape[0] < n:
+            raise IndexError("You are attempting to plot more images than your batch contains!")
+    
         # denormalize images
         denormalization = transforms.Normalize((-MEAN / STD).tolist(), (1.0 / STD).tolist())
-        x = [denormalization(i) for i in x[:n]]
-        output = [denormalization(i) for i in output[:n]]
+        x1 = [denormalization(i) for i in input_batches[0][:n]]
+        x2 = [denormalization(i) for i in input_batches[1][:n]]
+        m1 = [denormalization(i) for i in mixed_batches[0][:n]]
+        m2 = [denormalization(i) for i in mixed_batches[1][:n]]
+        r1 = [denormalization(i) for i in reconstr_batches[0][:n]]
+        r2 = [denormalization(i) for i in reconstr_batches[1][:n]]
 
-        # make grids and save to logger
-        grid_top = vutils.make_grid(x, nrow=n)
-        grid_bottom = vutils.make_grid(output, nrow=n)
-        grid = torch.cat((grid_top, grid_bottom), 1)
-        self.logger.experiment.add_image(name, grid)
+        # create empty plot and send to device
+        plot = torch.tensor([], device=x1[0].device)
+
+        for i in range(n):
+            grid_top = vutils.make_grid([x1[i], x2[i]], 2)
+            grid_mid = vutils.make_grid([m1[i], m2[i]], 2)
+            grid_bot = vutils.make_grid([r1[i], r2[i]], 2)
+            grid_cat = torch.cat((grid_top, grid_mid, grid_bot), 1)
+            plot = torch.cat((plot, grid_cat), 2)
+            
+            # add offset between image triplets
+            if i > 0 and i < n:
+                border_width = 4
+                border = torch.zeros(plot.shape[0], plot.shape[1], border_width, device=x1[0].device)
+                plot = torch.cat((plot, border), 2)
+
+        name = f"{prefix}_input_mixed_reconstr_images"
+        self.logger.experiment.add_image(name, plot)
 
     def training_step(self, batch, batch_idx):
         return self._shared_eval(batch, batch_idx)
@@ -172,6 +195,10 @@ class Net(pl.LightningModule):
         loss = (self.hparams.alpha * reconstr_loss 
                 + self.hparams.gamma * cycle_loss_a 
                 + self.hparams.delta * cycle_loss_b)
+
+        # plot input, mixed and reconstructed images at beginning of epoch
+        if plot and batch_idx == 0:
+            self.plot((x1, x2), (out["m1"], out["m2"]), (out["r1"], out["r2"]), prefix)
 
         # add underscore to prefix
         if prefix:
