@@ -242,21 +242,17 @@ def main(hparams):
     model = Net(hparams)
 
     # print detailed summary with estimated network size
-    summary(
-        model,
-        input_size=[
-            (hparams.nc, hparams.img_size, hparams.img_size),
-            (hparams.nc, hparams.img_size, hparams.img_size),
-        ],
-        device="cpu",
-    )
+    # commented out for now because problems with ddp backend
+    # summary(
+    #     model,
+    #     input_size=[
+    #         (hparams.nc, hparams.img_size, hparams.img_size),
+    #         (hparams.nc, hparams.img_size, hparams.img_size),
+    #     ],
+    #     device="cpu",
+    # )
 
-    if hparams.batch_size < 2:
-        raise IndexError("Batch size must be at least 2 because we need 2 input images.")
-    if hparams.batch_size % 2 != 0:
-        raise IndexError("Batch size must be divisble by 2 because we feed pairs of images to the network.")
-
-    trainer = Trainer(logger=logger, gpus=hparams.gpus, max_epochs=hparams.max_epochs)
+    trainer = Trainer(logger=logger, gpus=hparams.gpus, max_epochs=hparams.max_epochs, distributed_backend="ddp")
     trainer.fit(model)
     trainer.test(model)
 
@@ -265,7 +261,7 @@ if __name__ == "__main__":
     parser = ArgumentParser()
 
     parser.add_argument("--data_root", type=str, default="../data", help="Data root directory")
-    parser.add_argument("--log_dir", type=str, default="../logs", help="Logging directory")
+    parser.add_argument("--log_dir", type=str, default="./logs", help="Logging directory")
     parser.add_argument("--num_workers", type=int, default=4, help="num_workers > 0 turns on multi-process data loading")
     parser.add_argument("--img_size", type=int, default=128, help="Spatial size of training images")
     parser.add_argument("--max_epochs", type=int, default=8, help="Number of maximum training epochs")
@@ -273,7 +269,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=0.0002, help="Learning rate for optimizer")
     parser.add_argument("--beta1", type=float, default=0.9, help="Beta1 hyperparameter for Adam optimizer")
     parser.add_argument("--beta2", type=float, default=0.999, help="Beta2 hyperparameter for Adam optimizer")
-    parser.add_argument("--gpus", type=int, default=2, help="Number of GPUs. Use 0 for CPU mode")
+    parser.add_argument("--gpus", type=int, default=0, help="Number of GPUs. Use 0 for CPU mode")
     parser.add_argument("--nc", type=int, default=3, help="Number of channels in the training images")
     parser.add_argument("--nfe", type=int, default=32, help="Number of feature maps in encoders")
     parser.add_argument("--nz", type=int, default=256, help="Size of latent codes after encoders")
@@ -287,4 +283,10 @@ if __name__ == "__main__":
     # we use same class and content code size, whereas LORD used content_dim=128, class_dim=256
 
     args = parser.parse_args()
+
+    if args.batch_size < 2:
+        raise IndexError("Batch size must be at least 2 because we need 2 input images.")
+    if args.batch_size % 2 != 0:
+        raise IndexError("Batch size must be divisble by 2 because we feed pairs of images to the network.")
+
     main(args)
