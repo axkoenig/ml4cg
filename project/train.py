@@ -91,12 +91,15 @@ class Net(pl.LightningModule):
 
     def prepare_data(self):
 
-        transform = transforms.Compose([transforms.Resize(self.hparams.img_size), 
-                                        transforms.CenterCrop(self.hparams.img_size),
-                                        transforms.ToTensor(),
-                                        transforms.Normalize(MEAN.tolist(), STD.tolist()),
-                                        ])
-        
+        transform = transforms.Compose(
+            [
+                transforms.Resize(self.hparams.img_size),
+                transforms.CenterCrop(self.hparams.img_size),
+                transforms.ToTensor(),
+                transforms.Normalize(MEAN.tolist(), STD.tolist()),
+            ]
+        )
+
         dataset = ImageFolder(root=self.hparams.data_root, transform=transform)
 
         # train, val and test split taken from "list_eval_partition.txt" of original celebA paper
@@ -109,16 +112,34 @@ class Net(pl.LightningModule):
         self.test_dataset = Subset(dataset, range(end_val_idx + 1, end_test_idx))
 
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, batch_size=self.hparams.batch_size, shuffle=True, num_workers=self.hparams.num_workers,)
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.hparams.batch_size,
+            shuffle=True,
+            num_workers=self.hparams.num_workers,
+            drop_last=True,
+        )
 
     def val_dataloader(self):
-        return DataLoader(self.val_dataset, batch_size=self.hparams.batch_size, shuffle=True, num_workers=self.hparams.num_workers,)
+        return DataLoader(
+            self.val_dataset,
+            batch_size=self.hparams.batch_size,
+            shuffle=True,
+            num_workers=self.hparams.num_workers,
+            drop_last=True,
+        )
 
     def test_dataloader(self):
-        return DataLoader(self.test_dataset, batch_size=self.hparams.batch_size, shuffle=True, num_workers=self.hparams.num_workers,)
+        return DataLoader(
+            self.test_dataset,
+            batch_size=self.hparams.batch_size,
+            shuffle=True,
+            num_workers=self.hparams.num_workers,
+            drop_last=True,
+        )
 
     def configure_optimizers(self):
-        return Adam(self.parameters(), lr=self.hparams.lr, betas=(self.hparams.beta1, self.hparams.beta2),)
+        return Adam(self.parameters(), lr=self.hparams.lr, betas=(self.hparams.beta1, self.hparams.beta2))
 
     def plot(self, input_batches, mixed_batches, reconstr_batches, prefix, n=2):
         """Plots n triplets of ((x1, x2), (m1, m2), (r1, r2)) 
@@ -136,7 +157,7 @@ class Net(pl.LightningModule):
 
         if input_batches[0].shape[0] < n:
             raise IndexError("You are attempting to plot more images than your batch contains!")
-    
+
         # denormalize images
         denormalization = transforms.Normalize((-MEAN / STD).tolist(), (1.0 / STD).tolist())
         x1 = [denormalization(i) for i in input_batches[0][:n]]
@@ -155,7 +176,7 @@ class Net(pl.LightningModule):
             grid_bot = vutils.make_grid([r1[i], r2[i]], 2)
             grid_cat = torch.cat((grid_top, grid_mid, grid_bot), 1)
             plot = torch.cat((plot, grid_cat), 2)
-            
+
             # add offset between image triplets
             if i > 0 and i < n:
                 border_width = 4
@@ -192,9 +213,11 @@ class Net(pl.LightningModule):
         reconstr_loss = F.l1_loss(x1, out["r1"]) + F.l1_loss(x2, out["r2"])
         cycle_loss_a = F.mse_loss(out["x1_a"], out["m1_a"]) + F.mse_loss(out["x2_a"], out["m2_a"])
         cycle_loss_b = F.mse_loss(out["x1_b"], out["m2_b"]) + F.mse_loss(out["x2_b"], out["m1_b"])
-        loss = (self.hparams.alpha * reconstr_loss 
-                + self.hparams.gamma * cycle_loss_a 
-                + self.hparams.delta * cycle_loss_b)
+        loss = (
+            self.hparams.alpha * reconstr_loss
+            + self.hparams.gamma * cycle_loss_a
+            + self.hparams.delta * cycle_loss_b
+        )
 
         # plot input, mixed and reconstructed images at beginning of epoch
         if plot and batch_idx == 0:
@@ -219,7 +242,14 @@ def main(hparams):
     model = Net(hparams)
 
     # print detailed summary with estimated network size
-    summary(model, input_size=[(hparams.nc, hparams.img_size, hparams.img_size), (hparams.nc, hparams.img_size, hparams.img_size),], device="cpu")
+    summary(
+        model,
+        input_size=[
+            (hparams.nc, hparams.img_size, hparams.img_size),
+            (hparams.nc, hparams.img_size, hparams.img_size),
+        ],
+        device="cpu",
+    )
 
     if hparams.batch_size < 2:
         raise IndexError("Batch size must be at least 2 because we need 2 input images.")
@@ -234,8 +264,8 @@ def main(hparams):
 if __name__ == "__main__":
     parser = ArgumentParser()
 
-    parser.add_argument("--data_root", type=str, default="/specific/netapp5_3/rent_public/dcor-01-2021/ronmokady/workshop20/team6/ml4cg/data", help="Data root directory")
-    parser.add_argument("--log_dir", type=str, default="/specific/netapp5_3/rent_public/dcor-01-2021/ronmokady/workshop20/team6/ml4cg/project/logs", help="Logging directory")
+    parser.add_argument("--data_root", type=str, default="../data", help="Data root directory")
+    parser.add_argument("--log_dir", type=str, default="../logs", help="Logging directory")
     parser.add_argument("--num_workers", type=int, default=4, help="num_workers > 0 turns on multi-process data loading")
     parser.add_argument("--img_size", type=int, default=128, help="Spatial size of training images")
     parser.add_argument("--max_epochs", type=int, default=8, help="Number of maximum training epochs")

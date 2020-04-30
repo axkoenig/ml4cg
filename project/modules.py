@@ -6,7 +6,7 @@ import torch.nn.functional as F
 class Encoder(nn.Module):
     def __init__(self, hparams):
         super().__init__()
-        self.hparams = hparams 
+        self.hparams = hparams
         self.net = nn.Sequential(
             # input (nc) x 128 x 128
             nn.Conv2d(hparams.nc, hparams.nfe, 4, 2, 1, bias=False),
@@ -45,6 +45,7 @@ class Encoder(nn.Module):
 class Generator(nn.Module):
     """Implementation adapted from https://github.com/avivga/lord-pytorch/blob/master/model/modules.py
     """
+
     def __init__(self, hparams):
         super().__init__()
 
@@ -53,8 +54,7 @@ class Generator(nn.Module):
 
         self.fc_layers = nn.Sequential(
             nn.Linear(
-                in_features=hparams.nz,
-                out_features=self.initial_img_size ** 2 * (hparams.dim_adain // 8),
+                in_features=hparams.nz, out_features=self.initial_img_size ** 2 * (hparams.dim_adain // 8),
             ),
             nn.LeakyReLU(),
             nn.Linear(
@@ -74,10 +74,7 @@ class Generator(nn.Module):
             self.adain_conv_layers += [
                 nn.Upsample(scale_factor=(2, 2)),
                 nn.Conv2d(
-                    in_channels=hparams.dim_adain,
-                    out_channels=hparams.dim_adain,
-                    padding=1,
-                    kernel_size=3,
+                    in_channels=hparams.dim_adain, out_channels=hparams.dim_adain, padding=1, kernel_size=3,
                 ),
                 nn.LeakyReLU(),
                 AdaptiveInstanceNorm2d(idx=i),
@@ -86,13 +83,9 @@ class Generator(nn.Module):
         self.adain_conv_layers = nn.Sequential(*self.adain_conv_layers)
 
         self.last_conv_layers = nn.Sequential(
-            nn.Conv2d(
-                in_channels=hparams.dim_adain, out_channels=64, padding=2, kernel_size=5
-            ),
+            nn.Conv2d(in_channels=hparams.dim_adain, out_channels=64, padding=2, kernel_size=5),
             nn.LeakyReLU(),
-            nn.Conv2d(
-                in_channels=64, out_channels=hparams.nc, padding=3, kernel_size=7
-            ),
+            nn.Conv2d(in_channels=64, out_channels=hparams.nc, padding=3, kernel_size=7),
             nn.Sigmoid(),
         )
 
@@ -131,9 +124,7 @@ class Modulation(nn.Module):
 
     def forward(self, x):
         adain_all = torch.cat([f(x) for f in self.adain_per_layer], dim=-1)
-        adain_params = adain_all.reshape(
-            -1, self.hparams.n_adain, self.hparams.dim_adain, 2
-        )
+        adain_params = adain_all.reshape(-1, self.hparams.n_adain, self.hparams.dim_adain, 2)
 
         return adain_params
 
@@ -156,12 +147,7 @@ class AdaptiveInstanceNorm2d(nn.Module):
         bias = self.bias.contiguous().view(-1)
 
         out = F.batch_norm(
-            x_reshaped,
-            running_mean=None,
-            running_var=None,
-            weight=weight,
-            bias=bias,
-            training=True,
+            x_reshaped, running_mean=None, running_var=None, weight=weight, bias=bias, training=True,
         )
 
         out = out.view(b, c, *x.shape[2:])
