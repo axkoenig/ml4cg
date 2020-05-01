@@ -178,8 +178,8 @@ class Net(pl.LightningModule):
             plot = torch.cat((plot, grid_cat), 2)
 
             # add offset between image triplets
-            if i > 0 and i < n:
-                border_width = 4
+            if n > 1 and i < n-1:
+                border_width = 6
                 border = torch.zeros(plot.shape[0], plot.shape[1], border_width, device=x1[0].device)
                 plot = torch.cat((plot, border), 2)
 
@@ -213,11 +213,7 @@ class Net(pl.LightningModule):
         reconstr_loss = F.l1_loss(x1, out["r1"]) + F.l1_loss(x2, out["r2"])
         cycle_loss_a = F.mse_loss(out["x1_a"], out["m1_a"]) + F.mse_loss(out["x2_a"], out["m2_a"])
         cycle_loss_b = F.mse_loss(out["x1_b"], out["m2_b"]) + F.mse_loss(out["x2_b"], out["m1_b"])
-        loss = (
-            self.hparams.alpha * reconstr_loss
-            + self.hparams.gamma * cycle_loss_a
-            + self.hparams.delta * cycle_loss_b
-        )
+        loss = self.hparams.alpha * reconstr_loss + self.hparams.gamma * (cycle_loss_a + cycle_loss_b)
 
         # plot input, mixed and reconstructed images at beginning of epoch
         if plot and batch_idx == 0:
@@ -237,7 +233,7 @@ class Net(pl.LightningModule):
 
 
 def main(hparams):
-    logger = loggers.TensorBoardLogger(hparams.log_dir, name="naive_1")
+    logger = loggers.TensorBoardLogger(hparams.log_dir, name="grid_naive_1")
 
     model = Net(hparams)
 
@@ -260,8 +256,8 @@ def main(hparams):
 if __name__ == "__main__":
     parser = ArgumentParser()
 
-    parser.add_argument("--data_root", type=str, default="../data", help="Data root directory")
-    parser.add_argument("--log_dir", type=str, default="./logs", help="Logging directory")
+    parser.add_argument("--data_root", type=str, default="/specific/netapp5_3/rent_public/dcor-01-2021/ronmokady/workshop20/team6/ml4cg/data", help="Data root directory")
+    parser.add_argument("--log_dir", type=str, default="/specific/netapp5_3/rent_public/dcor-01-2021/ronmokady/workshop20/team6/ml4cg/project/logs", help="Logging directory")
     parser.add_argument("--num_workers", type=int, default=4, help="num_workers > 0 turns on multi-process data loading")
     parser.add_argument("--img_size", type=int, default=128, help="Spatial size of training images")
     parser.add_argument("--max_epochs", type=int, default=8, help="Number of maximum training epochs")
@@ -269,15 +265,14 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=0.0002, help="Learning rate for optimizer")
     parser.add_argument("--beta1", type=float, default=0.9, help="Beta1 hyperparameter for Adam optimizer")
     parser.add_argument("--beta2", type=float, default=0.999, help="Beta2 hyperparameter for Adam optimizer")
-    parser.add_argument("--gpus", type=int, default=0, help="Number of GPUs. Use 0 for CPU mode")
+    parser.add_argument("--gpus", type=int, default=2, help="Number of GPUs. Use 0 for CPU mode")
     parser.add_argument("--nc", type=int, default=3, help="Number of channels in the training images")
     parser.add_argument("--nfe", type=int, default=32, help="Number of feature maps in encoders")
     parser.add_argument("--nz", type=int, default=256, help="Size of latent codes after encoders")
     parser.add_argument("--n_adain", type=int, default=4, help="Number of AdaIn layers in generator")
     parser.add_argument("--dim_adain", type=int, default=256, help="Dimension of AdaIn layer in generator")
     parser.add_argument("--alpha", type=float, default=1.0, help="Weight of reconstruction loss")
-    parser.add_argument("--gamma", type=float, default=0.5, help="Weight of cycle loss for features a")
-    parser.add_argument("--delta", type=float, default=0.5, help="Weight of cycle loss for features b")
+    parser.add_argument("--gamma", type=float, default=0.5, help="Weight of cycle losses")
 
     ### NOTES
     # we use same class and content code size, whereas LORD used content_dim=128, class_dim=256
