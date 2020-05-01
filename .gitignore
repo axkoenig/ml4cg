@@ -1,7 +1,4 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
+# Custom
 *.vscode
 tutorials/data/
 tutorials/cifar_net.pth
@@ -9,6 +6,12 @@ data/
 */logs/
 */lightning_logs/
 *.texpadtmp
+*grid_logs*
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
 
 # C extensions
 *.so
