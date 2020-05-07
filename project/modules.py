@@ -105,6 +105,42 @@ class Generator(nn.Module):
 
         return x
 
+class Discriminator(nn.Module):
+    def __init__(self, hparams):
+        super(Discriminator, self).__init__()
+        self.hparams = hparams
+        self.net = nn.Sequential(
+            # input is (nc) x 128 x 128
+            nn.Conv2d(hparams.nc, hparams.nfd, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(hparams.nfd),
+            nn.LeakyReLU(0.2, inplace=True),
+            # state size. (nfd) x 64 x 64
+            nn.Conv2d(hparams.nfd, hparams.nfd * 2, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(hparams.nfd * 2),
+            nn.LeakyReLU(0.2, inplace=True),
+            # state size. (hparams.nfd*2) x 32 x 32
+            nn.Conv2d(hparams.nfd*2, hparams.nfd * 4, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(hparams.nfd * 4),
+            nn.LeakyReLU(0.2, inplace=True),
+            # state size. (hparams.nfd*4) x 16 x 16
+            nn.Conv2d(hparams.nfd * 4, hparams.nfd * 8, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(hparams.nfd * 8),
+            nn.LeakyReLU(0.2, inplace=True),
+            # state size. (hparams.nfd*8) x 8 x 8
+            nn.Conv2d(hparams.nfd * 8, hparams.nfd * 16, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(hparams.nfd * 16),
+            nn.LeakyReLU(0.2, inplace=True),
+            # state size. (hparams.nfd*16) x 4 x 4
+            nn.Conv2d(hparams.nfd * 16, 1, 4, 1, 0, bias=False),
+            # final probability of input image being fake or real (binary classification)
+            nn.Sigmoid()
+        )
+
+    # give discriminator image x to classify as real or fake
+    def forward(self, x):
+        pred = self.net(x)
+        pred = pred.view(pred.size(0), 1)
+        return pred
 
 class Modulation(nn.Module):
     """Implementation adapted from https://github.com/avivga/lord-pytorch/blob/master/model/modules.py

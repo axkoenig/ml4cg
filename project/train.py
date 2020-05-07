@@ -1,10 +1,12 @@
 __author__ = "Alexander Koenig, Li Nguyen"
 
 from argparse import ArgumentParser
+from collections import OrderedDict
 
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+import torch.tensor
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 import torchvision.utils as vutils
@@ -14,7 +16,7 @@ from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import ImageFolder
 from torchsummary import summary
 
-from modules import Encoder, Modulation, Generator
+from modules import Encoder, Modulation, Generator, Discriminator
 
 # normalization constants
 MEAN = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
@@ -30,6 +32,10 @@ class Net(pl.LightningModule):
         self.encoder_b = Encoder(hparams)
         self.modulation = Modulation(hparams)
         self.generator = Generator(hparams)
+        self.discriminator = Discriminator(hparams)
+
+        # cache for generated images
+        self.generated_imgs = None        
 
     def forward(self, x1, x2):
         """Forward pass of network
@@ -46,7 +52,7 @@ class Net(pl.LightningModule):
         Returns:
             dict: codes, mixed and reconstruced images
         """
-        # disassembly of original images
+        # disassembly of original images (latent representations)
         x1_a = self.encoder_a(x1)
         x1_b = self.encoder_b(x1)
         x2_a = self.encoder_a(x2)
@@ -60,7 +66,7 @@ class Net(pl.LightningModule):
         m1 = self.generator(x2_b, x1_a_ada)
         m2 = self.generator(x1_b, x2_a_ada)
 
-        # disassembly of mixed images
+        # disassembly of mixed images (latent representations)
         m1_a = self.encoder_a(m1)
         m1_b = self.encoder_b(m1)
         m2_a = self.encoder_a(m2)
@@ -89,6 +95,9 @@ class Net(pl.LightningModule):
             "r2": r2,
         }
 
+    def adversarial_loss(self, y_hat, y):
+        return F.binary_cross_entropy(y_hat, y)
+
     def prepare_data(self):
 
         transform = transforms.Compose(
@@ -103,7 +112,7 @@ class Net(pl.LightningModule):
         dataset = ImageFolder(root=self.hparams.data_root, transform=transform)
 
         # train, val and test split taken from "list_eval_partition.txt" of original celebA paper
-        end_train_idx = 162770
+        end_train_idx =  162770 
         end_val_idx = 182637
         end_test_idx = len(dataset)
 
@@ -124,7 +133,7 @@ class Net(pl.LightningModule):
         return DataLoader(
             self.val_dataset,
             batch_size=self.hparams.batch_size,
-            shuffle=True,
+            shuffle=False,
             num_workers=self.hparams.num_workers,
             drop_last=True,
         )
@@ -133,13 +142,20 @@ class Net(pl.LightningModule):
         return DataLoader(
             self.test_dataset,
             batch_size=self.hparams.batch_size,
-            shuffle=True,
+            shuffle=False,
             num_workers=self.hparams.num_workers,
             drop_last=True,
         )
 
     def configure_optimizers(self):
-        return Adam(self.parameters(), lr=self.hparams.lr, betas=(self.hparams.beta1, self.hparams.beta2))
+        lr = self.hparams.lr
+        b1 = self.hparams.beta1
+        b2 = self.hparams.beta2
+
+        # configuring optimizer for generator and discriminator
+        opt_g = Adam(self.generator.parameters(), lr=lr, betas=(b1, b2))
+        opt_d = Adam(self.discriminator.parameters(), lr=lr, betas=(b1, b2))
+        return [opt_g, opt_d], [] 
 
     def plot(self, input_batches, mixed_batches, reconstr_batches, prefix, n=2):
         """Plots n triplets of ((x1, x2), (m1, m2), (r1, r2)) 
@@ -186,8 +202,93 @@ class Net(pl.LightningModule):
         name = f"{prefix}_input_mixed_reconstr_images"
         self.logger.experiment.add_image(name, plot)
 
-    def training_step(self, batch, batch_idx):
-        return self._shared_eval(batch, batch_idx)
+    def training_step(self, batch, batch_idx, optimizer_idx, prefix="", plot=False):
+        # retrieve batch and split in half, first half represents domain A other half represents domain B
+        imgs, _ = batch
+        split_idx = imgs.shape[0] // 2
+        x1 = imgs[:split_idx]
+        x2 = imgs[split_idx:]
+
+        # train generator
+        if optimizer_idx == 0:
+            
+            # forward pass: generate images
+            out = self(x1, x2)
+
+            # save all generated images to be classified by discriminator in array            
+            img = out.get("m1")
+            img = img.view(img.size(0), self.hparams.nc, self.hparams.img_size, self.hparams.img_size)
+            self.generated_imgs = img # initializing the generated_imgs object
+
+            keys = ["m2", "r1", "r2"]
+            for key in keys:                
+                img = out.get(key)
+                img = img.view(img.size(0), self.hparams.nc, self.hparams.img_size, self.hparams.img_size) # img.size(0) is number of images generated from this batch
+                self.generated_imgs = torch.cat((self.generated_imgs, out.get(key)), 0)
+
+            # should be ([32, 3, 128, 128])
+            # why 32? We have a default batch size of 16, we divide this by 2, to get 8 images belonging to domain A, and 8 for domain B
+            # Then these will be combined pairwise which results in 8 mixed images with features from domain A, and the same for domain B
+            # i.e. 16 mixed images. Same for reconstructed again 16 images, results in 32 images in total.
+
+            # log 8 of the generated images, i.e. 2 sets of mixed and reassembled from the two domains
+            #num_log_imgs = 8
+            #sample_imgs = self.generated_imgs[:num_log_imgs]
+            #grid = vutils.make_grid(sample_imgs)
+            #self.experiment.add_image('generated_images', grid, 0)
+
+            # reconstruction loss
+            reconstr_loss = F.l1_loss(x1, out["r1"]) + F.l1_loss(x2, out["r2"])
+            
+            # cycle consistency losses
+            cycle_loss_a = F.mse_loss(out["x1_a"], out["m1_a"]) + F.mse_loss(out["x2_a"], out["m2_a"])
+            cycle_loss_b = F.mse_loss(out["x1_b"], out["m2_b"]) + F.mse_loss(out["x2_b"], out["m1_b"])
+            
+            # ground truth result (ie: all fake is 1)
+            valid = torch.ones(self.hparams.batch_size*2, 1)
+
+            g_loss = self.adversarial_loss(self.discriminator(self.generated_imgs), valid)
+
+            # over all loss for generator
+            loss = self.hparams.alpha * reconstr_loss + self.hparams.gamma * (cycle_loss_a + cycle_loss_b) + g_loss
+
+            # plot input, mixed and reconstructed images at beginning of epoch
+            if plot and batch_idx == 0:
+                self.plot((x1, x2), (out["m1"], out["m2"]), (out["r1"], out["r2"]), prefix)
+
+            # add underscore to prefix
+            if prefix:
+                prefix = prefix + "_"
+            
+            tqdm_dict = {'g_loss': g_loss}
+            output = OrderedDict({
+                'loss': loss,
+                'progress_bar': tqdm_dict,
+                'log': tqdm_dict
+            })
+            return output
+
+        # train discriminator: Measure discriminator's ability to classify real from generated samples
+        if optimizer_idx == 1:            
+
+            # How well can it label images as real ones?
+            valid = torch.ones(imgs.size(0), 1)
+            real_loss = self.adversarial_loss(self.discriminator(imgs), valid)
+
+            # How well can it label images as fake ones?
+            fake = torch.zeros(self.hparams.batch_size*2, 1)
+            fake_loss = self.adversarial_loss(self.discriminator(self.generated_imgs.detach()), fake)
+
+            # discriminator loss is the average of loss for classifying real and fake images
+            d_loss = (real_loss + fake_loss) / 2
+
+            tqdm_dict = {'d_loss': d_loss}
+            output = OrderedDict({
+                'loss': d_loss,
+                'progress_bar': tqdm_dict,
+                'log': tqdm_dict
+            })
+            return output
 
     def validation_step(self, batch, batch_idx):
         return self._shared_eval(batch, batch_idx, prefix="val", plot=True)
@@ -202,6 +303,7 @@ class Net(pl.LightningModule):
         return self._shared_eval_epoch_end(outputs, "test")
 
     def _shared_eval(self, batch, batch_idx, prefix="", plot=False):
+        
         # retrieve batch and split in half
         imgs, _ = batch
         split_idx = imgs.shape[0] // 2
@@ -268,6 +370,7 @@ if __name__ == "__main__":
     parser.add_argument("--gpus", type=int, default=2, help="Number of GPUs. Use 0 for CPU mode")
     parser.add_argument("--nc", type=int, default=3, help="Number of channels in the training images")
     parser.add_argument("--nfe", type=int, default=32, help="Number of feature maps in encoders")
+    parser.add_argument("--nfd", type=int, default=32, help="Number of feature maps in discriminator")
     parser.add_argument("--nz", type=int, default=256, help="Size of latent codes after encoders")
     parser.add_argument("--n_adain", type=int, default=4, help="Number of AdaIn layers in generator")
     parser.add_argument("--dim_adain", type=int, default=256, help="Dimension of AdaIn layer in generator")
