@@ -6,7 +6,6 @@ from collections import OrderedDict
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-import torch.tensor
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 import torchvision.utils as vutils
