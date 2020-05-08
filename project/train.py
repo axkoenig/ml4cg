@@ -51,7 +51,7 @@ class Net(pl.LightningModule):
         Returns:
             dict: codes, mixed and reconstruced images
         """
-        # disassembly of original images (latent representations)
+        # disassembly of original images into latent representations
         x1_a = self.encoder_a(x1)
         x1_b = self.encoder_b(x1)
         x2_a = self.encoder_a(x2)
@@ -65,7 +65,7 @@ class Net(pl.LightningModule):
         m1 = self.generator(x2_b, x1_a_ada)
         m2 = self.generator(x1_b, x2_a_ada)
 
-        # disassembly of mixed images (latent representations)
+        # disassembly of mixed images into latent representations
         m1_a = self.encoder_a(m1)
         m1_b = self.encoder_b(m1)
         m2_a = self.encoder_a(m2)
@@ -111,7 +111,7 @@ class Net(pl.LightningModule):
         dataset = ImageFolder(root=self.hparams.data_root, transform=transform)
 
         # train, val and test split taken from "list_eval_partition.txt" of original celebA paper
-        end_train_idx =  162770 
+        end_train_idx = 162770
         end_val_idx = 182637
         end_test_idx = len(dataset)
 
@@ -268,10 +268,6 @@ class Net(pl.LightningModule):
             # plot input, mixed and reconstructed images at beginning of epoch
             if plot and batch_idx == 0:
                 self.plot((x1, x2), (out["m1"], out["m2"]), (out["r1"], out["r2"]), prefix)
-
-            # add underscore to prefix
-            if prefix:
-                prefix = prefix + "_"
             
             tqdm_dict = {'g_loss': g_loss}
             output = OrderedDict({
@@ -287,7 +283,7 @@ class Net(pl.LightningModule):
             # How well can it label images as real ones?
             valid = torch.ones(imgs.size(0), 1)
             if self.on_gpu:
-                valid = valid.cuda(imgs.device.index) # returns a copy of this object in CUDA memory
+                valid = valid.cuda(imgs.device.index)
             
             real_loss = self.adversarial_loss(self.discriminator(imgs), valid)
 

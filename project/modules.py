@@ -136,11 +136,10 @@ class Discriminator(nn.Module):
             nn.Sigmoid()
         )
 
-    # give discriminator image x to classify as real or fake
     def forward(self, x):
-        pred = self.net(x)
-        pred = pred.view(pred.size(0), 1)
-        return pred
+          x = self.net(x)
+          x = x.view(x.size(0), 1)
+          return x
 
 class Modulation(nn.Module):
     """Implementation adapted from https://github.com/avivga/lord-pytorch/blob/master/model/modules.py
