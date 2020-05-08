@@ -373,7 +373,7 @@ if __name__ == "__main__":
     parser = ArgumentParser()
 
     parser.add_argument("--data_root", type=str, default="../../../data/celebA", help="Data root directory")
-    parser.add_argument("--log_dir", type=str, default="/logs", help="Logging directory")
+    parser.add_argument("--log_dir", type=str, default="logs", help="Logging directory")
     parser.add_argument("--num_workers", type=int, default=4, help="num_workers > 0 turns on multi-process data loading")
     parser.add_argument("--img_size", type=int, default=128, help="Spatial size of training images")
     parser.add_argument("--max_epochs", type=int, default=16, help="Number of maximum training epochs")
