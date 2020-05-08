@@ -137,9 +137,9 @@ class Discriminator(nn.Module):
         )
 
     def forward(self, x):
-          x = self.net(x)
-          x = x.view(x.size(0), 1)
-          return x
+        x = self.net(x)
+        x = x.view(x.size(0), 1)
+        return x
 
 class Modulation(nn.Module):
     """Implementation adapted from https://github.com/avivga/lord-pytorch/blob/master/model/modules.py
