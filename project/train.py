@@ -401,7 +401,6 @@ if __name__ == "__main__":
     parser.add_argument("--dim_adain", type=int, default=256, help="Dimension of AdaIn layer in generator")
     parser.add_argument("--alpha", type=float, default=1.0, help="Weight of reconstruction loss")
     parser.add_argument("--gamma", type=float, default=0.4, help="Weight of cycle losses")
-    parser.add_argument("--gamma", type=float, default=0.4, help="Weight of cycle losses")
     parser.add_argument("--lambda_g", type=float, default=0.4, help="Weight of generator loss")
     parser.add_argument("--lambda_d", type=float, default=0.4, help="Weight of discriminator loss")
 
