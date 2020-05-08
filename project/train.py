@@ -230,10 +230,16 @@ class Net(pl.LightningModule):
                 img = img.view(img.size(0), self.hparams.nc, self.hparams.img_size, self.hparams.img_size) # img.size(0) is number of images generated from this batch
                 self.generated_imgs = torch.cat((self.generated_imgs, out.get(key)), 0)
 
-            # should be ([32, 3, 128, 128])
-            # why 32? We have a default batch size of 16, we divide this by 2, to get 8 images belonging to domain A, and 8 for domain B
-            # Then these will be combined pairwise which results in 8 mixed images with features from domain A, and the same for domain B
-            # i.e. 16 mixed images. Same for reconstructed again 16 images, results in 32 images in total.
+            """
+            Explanation of the number of generated images:
+            We have a default batch size of 16, we divide this by 2, 
+            to get 8 images belonging to domain A, and 8 for domain B.
+            These will then be combined pairwise, which results in 8 mixed images 
+            for each feature as the separate feature, i.e. 16 mixed images.
+            The same applies for the reconstructed images again: 16 images
+            This results in 32 images in total.
+            Therefore, generated_imgs should have shape ([32, 3, 128, 128])
+            """
 
             # log 8 of the generated images, i.e. 2 sets of mixed and reassembled from the two domains
             #num_log_imgs = 8
@@ -365,8 +371,14 @@ def main(hparams):
 
     trainer = Trainer(logger=logger, gpus=hparams.gpus, max_epochs=hparams.max_epochs, distributed_backend="ddp")
     trainer.fit(model)
+
+    PATH = './trained_gan.pth'
+    torch.save(model.state_dict(), PATH)
+
     trainer.test(model)
 
+    PATH = './tested_gan.pth'
+    torch.save(model.state_dict(), PATH)
 
 if __name__ == "__main__":
     parser = ArgumentParser()
