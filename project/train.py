@@ -367,14 +367,7 @@ def main(hparams):
 
     trainer = Trainer(logger=logger, gpus=hparams.gpus, max_epochs=hparams.max_epochs, distributed_backend="ddp")
     trainer.fit(model)
-
-    PATH = './trained_gan.pth'
-    torch.save(model.state_dict(), PATH)
-
     trainer.test(model)
-
-    PATH = './tested_gan.pth'
-    torch.save(model.state_dict(), PATH)
 
 if __name__ == "__main__":
     parser = ArgumentParser()
