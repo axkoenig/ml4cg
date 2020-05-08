@@ -388,7 +388,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_adain", type=int, default=4, help="Number of AdaIn layers in generator")
     parser.add_argument("--dim_adain", type=int, default=256, help="Dimension of AdaIn layer in generator")
     parser.add_argument("--alpha", type=float, default=1.0, help="Weight of reconstruction loss")
-    parser.add_argument("--gamma", type=float, default=0.5, help="Weight of cycle losses")
+    parser.add_argument("--gamma", type=float, default=0.4, help="Weight of cycle losses")
 
     ### NOTES
     # we use same class and content code size, whereas LORD used content_dim=128, class_dim=256
