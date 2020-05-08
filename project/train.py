@@ -263,7 +263,7 @@ class Net(pl.LightningModule):
             g_loss = self.adversarial_loss(self.discriminator(self.generated_imgs), valid)
 
             # over all loss for generator
-            loss = self.hparams.alpha * reconstr_loss + self.hparams.gamma * (cycle_loss_a + cycle_loss_b) + g_loss
+            loss = self.hparams.alpha * reconstr_loss + self.hparams.gamma * (cycle_loss_a + cycle_loss_b) + self.hparams.lambda_g * g_loss
 
             # plot input, mixed and reconstructed images at beginning of epoch
             if plot and batch_idx == 0:
@@ -299,7 +299,7 @@ class Net(pl.LightningModule):
             fake_loss = self.adversarial_loss(self.discriminator(self.generated_imgs.detach()), fake)
 
             # discriminator loss is the average of loss for classifying real and fake images
-            d_loss = (real_loss + fake_loss) / 2
+            d_loss = ((real_loss + fake_loss) / 2) * self.hparams.lambda_d
 
             tqdm_dict = {'d_loss': d_loss}
             output = OrderedDict({
@@ -401,6 +401,10 @@ if __name__ == "__main__":
     parser.add_argument("--dim_adain", type=int, default=256, help="Dimension of AdaIn layer in generator")
     parser.add_argument("--alpha", type=float, default=1.0, help="Weight of reconstruction loss")
     parser.add_argument("--gamma", type=float, default=0.4, help="Weight of cycle losses")
+    parser.add_argument("--gamma", type=float, default=0.4, help="Weight of cycle losses")
+    parser.add_argument("--lambda_g", type=float, default=0.4, help="Weight of generator loss")
+    parser.add_argument("--lambda_d", type=float, default=0.4, help="Weight of discriminator loss")
+
 
     ### NOTES
     # we use same class and content code size, whereas LORD used content_dim=128, class_dim=256
