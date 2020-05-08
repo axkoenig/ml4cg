@@ -5,7 +5,7 @@ conda activate team6
 
 max_epochs=20
 gpus=2
-batch_size=32
+batch_size=16
 
 for lambda_g in 0.01 1 10
 do
