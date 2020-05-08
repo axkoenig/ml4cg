@@ -210,6 +210,11 @@ class Net(pl.LightningModule):
 
         # train generator
         if optimizer_idx == 0:
+
+            # match gpu device (or keep as cpu)
+            if self.on_gpu:
+                x1 = x1.cuda(imgs.device.index)
+                x2 = x2.cuda(imgs.device.index)
             
             # forward pass: generate images
             out = self(x1, x2)
@@ -244,7 +249,10 @@ class Net(pl.LightningModule):
             cycle_loss_b = F.mse_loss(out["x1_b"], out["m2_b"]) + F.mse_loss(out["x2_b"], out["m1_b"])
             
             # ground truth result (ie: all fake is 1)
+            # put on GPU because we created this tensor inside training_loop
             valid = torch.ones(self.hparams.batch_size*2, 1)
+            if self.on_gpu:
+                valid = valid.cuda(imgs.device.index)
 
             g_loss = self.adversarial_loss(self.discriminator(self.generated_imgs), valid)
 
@@ -272,10 +280,16 @@ class Net(pl.LightningModule):
 
             # How well can it label images as real ones?
             valid = torch.ones(imgs.size(0), 1)
+            if self.on_gpu:
+                valid = valid.cuda(imgs.device.index) # returns a copy of this object in CUDA memory
+            
             real_loss = self.adversarial_loss(self.discriminator(imgs), valid)
 
             # How well can it label images as fake ones?
             fake = torch.zeros(self.hparams.batch_size*2, 1)
+            if self.on_gpu:
+                fake = fake.cuda(imgs.device.index)
+            
             fake_loss = self.adversarial_loss(self.discriminator(self.generated_imgs.detach()), fake)
 
             # discriminator loss is the average of loss for classifying real and fake images
