@@ -147,14 +147,17 @@ class Net(pl.LightningModule):
         )
 
     def configure_optimizers(self):
-        lr = self.hparams.lr
+        lr_g = self.hparams.lr_g
+        lr_d = self.hparams.lr_d
         b1 = self.hparams.beta1
         b2 = self.hparams.beta2
 
         # configuring optimizer for generator and discriminator
-        opt_g = Adam(self.generator.parameters(), lr=lr, betas=(b1, b2))
-        opt_d = Adam(self.discriminator.parameters(), lr=lr, betas=(b1, b2))
+        opt_g = Adam(self.generator.parameters(), lr=lr_g, betas=(b1, b2))
+        opt_d = Adam(self.discriminator.parameters(), lr=lr_d, betas=(b1, b2))
         return [opt_g, opt_d], [] 
+
+      
 
     def plot(self, input_batches, mixed_batches, reconstr_batches, prefix, n=2):
         """Plots n triplets of ((x1, x2), (m1, m2), (r1, r2)) 
@@ -381,7 +384,8 @@ if __name__ == "__main__":
     parser.add_argument("--img_size", type=int, default=128, help="Spatial size of training images")
     parser.add_argument("--max_epochs", type=int, default=16, help="Number of maximum training epochs")
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size during training")
-    parser.add_argument("--lr", type=float, default=0.0002, help="Learning rate for optimizer")
+    parser.add_argument("--lr_g", type=float, default=0.0002, help="Learning rate for generator optimizer which contains reconstruction, cycle consistency and generator loss")
+    parser.add_argument("--lr_d", type=float, default=0.0002, help="Learning rate for discriminator optimizer")
     parser.add_argument("--beta1", type=float, default=0.9, help="Beta1 hyperparameter for Adam optimizer")
     parser.add_argument("--beta2", type=float, default=0.999, help="Beta2 hyperparameter for Adam optimizer")
     parser.add_argument("--gpus", type=int, default=2, help="Number of GPUs. Use 0 for CPU mode")
