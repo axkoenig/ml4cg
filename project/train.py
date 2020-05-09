@@ -224,7 +224,9 @@ class Net(pl.LightningModule):
             img = img.view(img.size(0), self.hparams.nc, self.hparams.img_size, self.hparams.img_size)
             self.generated_imgs = img # initializing the generated_imgs object
 
-            keys = ["m2", "r1", "r2"]
+
+            keys = ["m2"]
+            # keys = ["m2", "r1", "r2"]
             for key in keys:                
                 img = out.get(key)
                 img = img.view(img.size(0), self.hparams.nc, self.hparams.img_size, self.hparams.img_size) # img.size(0) is number of images generated from this batch
@@ -238,7 +240,8 @@ class Net(pl.LightningModule):
             for each feature as the separate feature, i.e. 16 mixed images.
             The same applies for the reconstructed images again: 16 images
             This results in 32 images in total.
-            Therefore, generated_imgs should have shape ([32, 3, 128, 128])
+            Therefore, generated_imgs should have shape ([32, 3, 128, 128]) if both mixed and reconstructed images are used for the gan loss.
+            If using only mixed images, generated_imgs should have shape ([16, 3, 128, 128]) respectively.
             """
 
             # log 8 of the generated images, i.e. 2 sets of mixed and reassembled from the two domains
@@ -256,7 +259,7 @@ class Net(pl.LightningModule):
             
             # ground truth result (ie: all fake is 1)
             # put on GPU because we created this tensor inside training_loop
-            valid = torch.ones(self.hparams.batch_size*2, 1)
+            valid = torch.ones(self.hparams.batch_size, 1)
             if self.on_gpu:
                 valid = valid.cuda(imgs.device.index)
 
@@ -288,7 +291,7 @@ class Net(pl.LightningModule):
             real_loss = self.adversarial_loss(self.discriminator(imgs), valid)
 
             # How well can it label images as fake ones?
-            fake = torch.zeros(self.hparams.batch_size*2, 1)
+            fake = torch.zeros(self.hparams.batch_size, 1)
             if self.on_gpu:
                 fake = fake.cuda(imgs.device.index)
             
