@@ -6,7 +6,7 @@ data/
 */logs/
 */lightning_logs/
 *.texpadtmp
-*grid_logs*
+*logs*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

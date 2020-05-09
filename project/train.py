@@ -124,7 +124,6 @@ class Net(pl.LightningModule):
         return DataLoader(
             self.val_dataset,
             batch_size=self.hparams.batch_size,
-            shuffle=True,
             num_workers=self.hparams.num_workers,
             drop_last=True,
         )
@@ -133,7 +132,6 @@ class Net(pl.LightningModule):
         return DataLoader(
             self.test_dataset,
             batch_size=self.hparams.batch_size,
-            shuffle=True,
             num_workers=self.hparams.num_workers,
             drop_last=True,
         )
@@ -141,7 +139,7 @@ class Net(pl.LightningModule):
     def configure_optimizers(self):
         return Adam(self.parameters(), lr=self.hparams.lr, betas=(self.hparams.beta1, self.hparams.beta2))
 
-    def plot(self, input_batches, mixed_batches, reconstr_batches, prefix, n=2):
+    def plot(self, input_batches, mixed_batches, reconstr_batches, prefix, n=8):
         """Plots n triplets of ((x1, x2), (m1, m2), (r1, r2)) 
 
         Args:
@@ -233,7 +231,7 @@ class Net(pl.LightningModule):
 
 
 def main(hparams):
-    logger = loggers.TensorBoardLogger(hparams.log_dir, name="grid_naive_1")
+    logger = loggers.TensorBoardLogger(hparams.log_dir, name=f"grid/gam{hparams.gamma}")
 
     model = Net(hparams)
 
@@ -256,8 +254,8 @@ def main(hparams):
 if __name__ == "__main__":
     parser = ArgumentParser()
 
-    parser.add_argument("--data_root", type=str, default="/specific/netapp5_3/rent_public/dcor-01-2021/ronmokady/workshop20/team6/ml4cg/data", help="Data root directory")
-    parser.add_argument("--log_dir", type=str, default="/specific/netapp5_3/rent_public/dcor-01-2021/ronmokady/workshop20/team6/ml4cg/project/logs", help="Logging directory")
+    parser.add_argument("--data_root", type=str, default="/specific/netapp5_3/rent_public/dcor-01-2021/ronmokady/workshop20/team6/data", help="Data root directory")
+    parser.add_argument("--log_dir", type=str, default="/specific/netapp5_3/rent_public/dcor-01-2021/ronmokady/workshop20/team6/ml4cg/project/new_logs", help="Logging directory")
     parser.add_argument("--num_workers", type=int, default=4, help="num_workers > 0 turns on multi-process data loading")
     parser.add_argument("--img_size", type=int, default=128, help="Spatial size of training images")
     parser.add_argument("--max_epochs", type=int, default=8, help="Number of maximum training epochs")
