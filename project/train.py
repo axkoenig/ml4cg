@@ -273,7 +273,7 @@ class Net(pl.LightningModule):
             loss = self.hparams.alpha * reconstr_loss + self.hparams.gamma * (cycle_loss_a + cycle_loss_b) + self.hparams.lambda_g * g_loss
 
             # plot input, mixed and reconstructed images at beginning of epoch
-            if batch_idx == 0:
+            if plot and batch_idx == 0:
                 self.plot((x1, x2), (out["m1"], out["m2"]), (out["r1"], out["r2"]), prefix)
             
             tqdm_dict = {'g_loss': g_loss}

@@ -7,7 +7,7 @@ max_epochs=20
 gpus=2
 batch_size=16
 lr_d=0.00005
-lt_g=0.0002
+lr_g=0.0002
 lambda_g=0.5
 lambda_d=0.005
 
