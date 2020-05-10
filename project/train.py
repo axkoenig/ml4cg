@@ -14,6 +14,7 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import ImageFolder
 from torchsummary import summary
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 from modules import Encoder, Modulation, Generator, Discriminator
 
@@ -159,7 +160,7 @@ class Net(pl.LightningModule):
 
       
 
-    def plot(self, input_batches, mixed_batches, reconstr_batches, prefix, n=2):
+    def plot(self, input_batches, mixed_batches, reconstr_batches, prefix, n=8):
         """Plots n triplets of ((x1, x2), (m1, m2), (r1, r2)) 
 
         Args:
@@ -204,7 +205,7 @@ class Net(pl.LightningModule):
         name = f"{prefix}_input_mixed_reconstr_images"
         self.logger.experiment.add_image(name, plot)
 
-    def training_step(self, batch, batch_idx, optimizer_idx, prefix="", plot=False):
+    def training_step(self, batch, batch_idx, optimizer_idx, prefix="", plot=True):
         # retrieve batch and split in half, first half represents domain A other half represents domain B
         imgs, _ = batch
         split_idx = imgs.shape[0] // 2
@@ -323,7 +324,7 @@ class Net(pl.LightningModule):
     def test_epoch_end(self, outputs):
         return self._shared_eval_epoch_end(outputs, "test")
 
-    def _shared_eval(self, batch, batch_idx, prefix="", plot=False):
+    def _shared_eval(self, batch, batch_idx, prefix="", plot=True):
         
         # retrieve batch and split in half
         imgs, _ = batch
@@ -371,6 +372,16 @@ def main(hparams):
     #     device="cpu",
     # )
 
+    checkpoint_callback = ModelCheckpoint(
+        filepath=os.getcwd(),
+        save_top_k=True,
+        verbose=True,
+        monitor='val_loss',
+        mode='min',
+        period=1,
+        prefix=''
+    )
+
     trainer = Trainer(logger=logger, gpus=hparams.gpus, max_epochs=hparams.max_epochs, distributed_backend="ddp")
     trainer.fit(model)
     trainer.test(model)
@@ -385,7 +396,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_epochs", type=int, default=16, help="Number of maximum training epochs")
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size during training")
     parser.add_argument("--lr_g", type=float, default=0.0002, help="Learning rate for generator optimizer which contains reconstruction, cycle consistency and generator loss")
-    parser.add_argument("--lr_d", type=float, default=0.0002, help="Learning rate for discriminator optimizer")
+    parser.add_argument("--lr_d", type=float, default=0.0001, help="Learning rate for discriminator optimizer")
     parser.add_argument("--beta1", type=float, default=0.9, help="Beta1 hyperparameter for Adam optimizer")
     parser.add_argument("--beta2", type=float, default=0.999, help="Beta2 hyperparameter for Adam optimizer")
     parser.add_argument("--gpus", type=int, default=2, help="Number of GPUs. Use 0 for CPU mode")

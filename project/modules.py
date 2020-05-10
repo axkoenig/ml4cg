@@ -141,6 +141,8 @@ class Discriminator(nn.Module):
         x = x.view(x.size(0), 1)
         return x
 
+        
+
 class Modulation(nn.Module):
     """Implementation adapted from https://github.com/avivga/lord-pytorch/blob/master/model/modules.py
     """
