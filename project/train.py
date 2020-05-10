@@ -205,7 +205,7 @@ class Net(pl.LightningModule):
         name = f"{prefix}_input_mixed_reconstr_images"
         self.logger.experiment.add_image(name, plot)
 
-    def training_step(self, batch, batch_idx, optimizer_idx, prefix="", plot=True):
+    def training_step(self, batch, batch_idx, optimizer_idx, prefix='', plot=True):
         # retrieve batch and split in half, first half represents domain A other half represents domain B
         imgs, _ = batch
         split_idx = imgs.shape[0] // 2
@@ -273,7 +273,7 @@ class Net(pl.LightningModule):
             loss = self.hparams.alpha * reconstr_loss + self.hparams.gamma * (cycle_loss_a + cycle_loss_b) + self.hparams.lambda_g * g_loss
 
             # plot input, mixed and reconstructed images at beginning of epoch
-            if plot and batch_idx == 0:
+            if batch_idx == 0:
                 self.plot((x1, x2), (out["m1"], out["m2"]), (out["r1"], out["r2"]), prefix)
             
             tqdm_dict = {'g_loss': g_loss}
@@ -324,7 +324,7 @@ class Net(pl.LightningModule):
     def test_epoch_end(self, outputs):
         return self._shared_eval_epoch_end(outputs, "test")
 
-    def _shared_eval(self, batch, batch_idx, prefix="", plot=True):
+    def _shared_eval(self, batch, batch_idx, prefix="", plot=False):
         
         # retrieve batch and split in half
         imgs, _ = batch
@@ -373,7 +373,7 @@ def main(hparams):
     # )
 
     checkpoint_callback = ModelCheckpoint(
-        filepath=os.getcwd(),
+        filepath='checkpoints/{epoch}-{val_loss:.2f}',
         save_top_k=True,
         verbose=True,
         monitor='val_loss',
