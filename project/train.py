@@ -280,9 +280,27 @@ class Net(pl.LightningModule):
         # train discriminator: Measure discriminator's ability to classify real from generated samples
         if optimizer_idx == 1:
             
+            # forward pass: generate images by passing through generator
+            out = self.gen(x1, x2)
+
+            # save all generated images to be classified by discriminator in array (initializing the generated_imgs object)         
+            img = out.get("m1")
+            img = img.view(img.size(0), self.hparams.nc, self.hparams.img_size, self.hparams.img_size)
+            gen_imgs = img
+
+            print("gen_imgs with mixed 1 has shape (should have 8 images):")
+            print(gen_imgs.shape)
+
+            keys = ["m2"]
+            # One can either train GAN only on mixed images (improves quality of mixed images) or also on reconstructed
+            # keys = ["m2", "r1", "r2"]
+            for key in keys:                
+                img = out.get(key)
+                img = img.view(img.size(0), self.hparams.nc, self.hparams.img_size, self.hparams.img_size) # img.size(0) is number of images generated from this batch
+                gen_imgs = torch.cat((gen_imgs, out.get(key)), 0)
+                
             real_loss = self.criterionGAN(self.dis(imgs), True)
             
-            print(type(gen_imgs))
             fake_loss = self.criterionGAN(self.dis(gen_imgs.detach()), False)
 
             # discriminator loss is the average of loss for classifying real and fake images
@@ -394,7 +412,7 @@ def main(hparams):
 
     model = Net(hparams)
 
-    trainer = Trainer(logger=logger, gpus=hparams.gpus, max_epochs=hparams.max_epochs, nb_sanity_val_steps=0, distributed_backend='ddp')
+    trainer = Trainer(logger=logger, gpus=hparams.gpus, max_epochs=hparams.max_epochs, nb_sanity_val_steps=0, distributed_backend='dp')
     trainer.fit(model)
     trainer.test(model)
 
