@@ -209,6 +209,8 @@ class Net(pl.LightningModule):
 
             print("self.generated_imgs has shape (should have 16 images):")
             print(self.generated_imgs.shape)
+            print("Generated images has type (after initializing it):")
+            print(type(self.generated_imgs))
             """
             Explanation of the number of generated images:
             We have a default batch size of 16, we divide this by 2, 
@@ -254,9 +256,12 @@ class Net(pl.LightningModule):
 
             # ground truth result (ie: all fake is 1)
             # put on GPU because we created this tensor inside training_loop
-            valid = torch.ones(self.hparams.batch_size, 1)
-            if self.on_gpu:
-                valid = valid.cuda(imgs.device.index)
+            # valid = torch.ones(self.hparams.batch_size, 1)
+            # if self.on_gpu:
+            #     valid = valid.cuda(imgs.device.index)
+
+            print("Generated images has type (before g loss):")
+            print(type(self.generated_imgs))
 
             g_loss = self.criterionGAN(self.dis(self.generated_imgs), True)
 
@@ -276,23 +281,13 @@ class Net(pl.LightningModule):
             return output
 
         # train discriminator: Measure discriminator's ability to classify real from generated samples
-        if optimizer_idx == 1:            
-
-            # How well can it label images as real ones?
-            # valid = torch.ones(imgs.size(0), 1)
-            # if self.on_gpu:
-            #     valid = valid.cuda(imgs.device.index)
+        if optimizer_idx == 1:
             
             real_loss = self.criterionGAN(self.dis(imgs), True)
-
-            # How well can it label images as fake ones?
-            fake = torch.zeros(self.hparams.batch_size, 1)
-            if self.on_gpu:
-                fake = fake.cuda(imgs.device.index)            
-
             
-            fake_loss = self.adversarial_loss(self.dis(self.generated_imgs.detach()), fake)
+            fake_loss = self.criterionGAN(self.dis(self.generated_imgs.detach()), False)
 
+            print(type(self.generated_imgs))
             # discriminator loss is the average of loss for classifying real and fake images
             d_loss = ((real_loss + fake_loss) / 2) * 0.5
 
