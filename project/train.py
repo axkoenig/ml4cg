@@ -54,6 +54,11 @@ class Net(pl.LightningModule):
         """
         return self.gen(x1, x2)
 
+
+    def adversarial_loss(self, y_hat, y):
+        return F.binary_cross_entropy(y_hat, y)
+
+
     def prepare_data(self):
 
         transform = transforms.Compose(
@@ -171,6 +176,9 @@ class Net(pl.LightningModule):
         split_idx = imgs.shape[0] // 2
         x1 = imgs[:split_idx]
         x2 = imgs[split_idx:]
+        print("Length of x1 and x2")
+        print(len(x1))
+        print(len(x2))
 
         # train generator
         if optimizer_idx == 0:
@@ -188,7 +196,7 @@ class Net(pl.LightningModule):
             img = img.view(img.size(0), self.hparams.nc, self.hparams.img_size, self.hparams.img_size)
             self.generated_imgs = img
 
-            print("self.generated_imgs with mixed 1 has shape:")
+            print("self.generated_imgs with mixed 1 has shape (should have 8 images):")
             print(self.generated_imgs.shape)
 
             keys = ["m2"]
@@ -199,7 +207,7 @@ class Net(pl.LightningModule):
                 img = img.view(img.size(0), self.hparams.nc, self.hparams.img_size, self.hparams.img_size) # img.size(0) is number of images generated from this batch
                 self.generated_imgs = torch.cat((self.generated_imgs, out.get(key)), 0)
 
-            print("self.generated_imgs has shape:")
+            print("self.generated_imgs has shape (should have 16 images):")
             print(self.generated_imgs.shape)
             """
             Explanation of the number of generated images:
@@ -271,18 +279,19 @@ class Net(pl.LightningModule):
         if optimizer_idx == 1:            
 
             # How well can it label images as real ones?
-            valid = torch.ones(imgs.size(0), 1)
-            if self.on_gpu:
-                valid = valid.cuda(imgs.device.index)
+            # valid = torch.ones(imgs.size(0), 1)
+            # if self.on_gpu:
+            #     valid = valid.cuda(imgs.device.index)
             
             real_loss = self.criterionGAN(self.dis(imgs), True)
 
             # How well can it label images as fake ones?
-            # fake = torch.zeros(self.hparams.batch_size, 1)
-            if self.on_gpu:
-                self.generated_imgs = self.generated_imgs.cuda(imgs.device.index)
+            fake = torch.zeros(self.hparams.batch_size, 1)
+            # if self.on_gpu:
+            #     fake = fake.cuda(imgs.device.index)            
+
             
-            fake_loss = self.criterionGAN(self.dis(self.generated_imgs.detach()), False)
+            fake_loss = self.adversarial_loss(self.dis(self.generated_imgs.detach()), fake)
 
             # discriminator loss is the average of loss for classifying real and fake images
             d_loss = ((real_loss + fake_loss) / 2) * 0.5
