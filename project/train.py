@@ -27,7 +27,6 @@ from vgg import Vgg16
 # normalization constants
 MEAN = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
 STD = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
-gen_imgs = None
 
 def recon_criterion(predict, target):
     return torch.mean(torch.abs(predict - target))
@@ -43,7 +42,7 @@ class Net(pl.LightningModule):
                                             self.hparams.n_layers_D, self.hparams.norm, self.hparams.init_type, self.hparams.init_gain, [])
 
         # cache for generated images
-        # self.generated_imgs = None
+        self.generated_imgs = None
 
     def forward(self, x1, x2):
         """Forward pass of network
@@ -173,9 +172,6 @@ class Net(pl.LightningModule):
         split_idx = imgs.shape[0] // 2
         x1 = imgs[:split_idx]
         x2 = imgs[split_idx:]
-        print("Length of x1 and x2")
-        print(len(x1))
-        print(len(x2))
 
         # train generator
         if optimizer_idx == 0:
@@ -191,10 +187,7 @@ class Net(pl.LightningModule):
             # save all generated images to be classified by discriminator in array (initializing the generated_imgs object)         
             img = out.get("m1")
             img = img.view(img.size(0), self.hparams.nc, self.hparams.img_size, self.hparams.img_size)
-            gen_imgs = img
-
-            print("gen_imgs with mixed 1 has shape (should have 8 images):")
-            print(gen_imgs.shape)
+            self.generated_imgs = img
 
             keys = ["m2"]
             # One can either train GAN only on mixed images (improves quality of mixed images) or also on reconstructed
@@ -202,12 +195,8 @@ class Net(pl.LightningModule):
             for key in keys:                
                 img = out.get(key)
                 img = img.view(img.size(0), self.hparams.nc, self.hparams.img_size, self.hparams.img_size) # img.size(0) is number of images generated from this batch
-                gen_imgs = torch.cat((gen_imgs, out.get(key)), 0)
+                self.generated_imgs = torch.cat((self.generated_imgs, out.get(key)), 0)
 
-            print("gen_imgs has shape (should have 16 images):")
-            print(gen_imgs.shape)
-            print("Generated images has type (after initializing it):")
-            print(type(gen_imgs))
             """
             Explanation of the number of generated images:
             We have a default batch size of 16, we divide this by 2, 
@@ -251,16 +240,7 @@ class Net(pl.LightningModule):
             cycle_loss_a = F.mse_loss(out["x1_a"], out["m1_a"]) + F.mse_loss(out["x2_a"], out["m2_a"])
             cycle_loss_b = F.mse_loss(out["x1_b"], out["m2_b"]) + F.mse_loss(out["x2_b"], out["m1_b"])
 
-            # ground truth result (ie: all fake is 1)
-            # put on GPU because we created this tensor inside training_loop
-            # valid = torch.ones(self.hparams.batch_size, 1)
-            # if self.on_gpu:
-            #     valid = valid.cuda(imgs.device.index)
-
-            print("Generated images has type (before g loss):")
-            print(type(gen_imgs))
-
-            g_loss = self.criterionGAN(self.dis(gen_imgs), True)
+            g_loss = self.criterionGAN(self.dis(self.generated_imgs), True)
 
             # over all loss for generator
             loss = self.hparams.alpha * (vgg_loss_b + vgg_loss_b) + self.hparams.gamma * (cycle_loss_a + cycle_loss_b) + self.hparams.lambda_g * g_loss
@@ -286,10 +266,7 @@ class Net(pl.LightningModule):
             # save all generated images to be classified by discriminator in array (initializing the generated_imgs object)         
             img = out.get("m1")
             img = img.view(img.size(0), self.hparams.nc, self.hparams.img_size, self.hparams.img_size)
-            gen_imgs = img
-
-            print("gen_imgs with mixed 1 has shape (should have 8 images):")
-            print(gen_imgs.shape)
+            self.generated_imgs = img
 
             keys = ["m2"]
             # One can either train GAN only on mixed images (improves quality of mixed images) or also on reconstructed
@@ -297,11 +274,11 @@ class Net(pl.LightningModule):
             for key in keys:                
                 img = out.get(key)
                 img = img.view(img.size(0), self.hparams.nc, self.hparams.img_size, self.hparams.img_size) # img.size(0) is number of images generated from this batch
-                gen_imgs = torch.cat((gen_imgs, out.get(key)), 0)
+                self.generated_imgs = torch.cat((self.generated_imgs, out.get(key)), 0)
                 
             real_loss = self.criterionGAN(self.dis(imgs), True)
             
-            fake_loss = self.criterionGAN(self.dis(gen_imgs.detach()), False)
+            fake_loss = self.criterionGAN(self.dis(self.generated_imgs.detach()), False)
 
             # discriminator loss is the average of loss for classifying real and fake images
             # we take the objective times 0.5 which leads to the discriminator learning at half speed as compared to the generator
