@@ -287,8 +287,8 @@ class Net(pl.LightningModule):
 
             # How well can it label images as fake ones?
             fake = torch.zeros(self.hparams.batch_size, 1)
-            # if self.on_gpu:
-            #     fake = fake.cuda(imgs.device.index)            
+            if self.on_gpu:
+                fake = fake.cuda(imgs.device.index)            
 
             
             fake_loss = self.adversarial_loss(self.dis(self.generated_imgs.detach()), fake)
