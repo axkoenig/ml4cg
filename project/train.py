@@ -55,10 +55,6 @@ class Net(pl.LightningModule):
         return self.gen(x1, x2)
 
 
-    def adversarial_loss(self, y_hat, y):
-        return F.binary_cross_entropy(y_hat, y)
-
-
     def prepare_data(self):
 
         transform = transforms.Compose(
@@ -285,10 +281,11 @@ class Net(pl.LightningModule):
             
             real_loss = self.criterionGAN(self.dis(imgs), True)
             
+            print(type(self.generated_imgs))
             fake_loss = self.criterionGAN(self.dis(self.generated_imgs.detach()), False)
 
-            print(type(self.generated_imgs))
             # discriminator loss is the average of loss for classifying real and fake images
+            # we take the objective times 0.5 which leads to the discriminator learning at half speed as compared to the generator
             d_loss = ((real_loss + fake_loss) / 2) * 0.5
 
             tqdm_dict = {'d_loss': d_loss}
@@ -396,10 +393,9 @@ def main(hparams):
 
     model = Net(hparams)
 
-    trainer = Trainer(logger=logger, gpus=hparams.gpus, max_epochs=hparams.max_epochs)
+    trainer = Trainer(logger=logger, gpus=hparams.gpus, max_epochs=hparams.max_epochs, nb_sanity_val_steps=0)
     trainer.fit(model)
     trainer.test(model)
-
 
 if __name__ == "__main__":
     parser = ArgumentParser()
@@ -431,8 +427,8 @@ if __name__ == "__main__":
     parser.add_argument("--lr_dis", type=float, default=1.0, help="Learning rate of discriminator network")    
     parser.add_argument("--nc", type=int, default=3, help="The number of channels in input images")
     parser.add_argument("--nfd", type=int, default=64, help="The number of filters in the first conv layer of the discriminator")
-    parser.add_argument("--dis_arch", type=str, default='n_layers', help="The architecture's name: basic | n_layers | pixel")
-    parser.add_argument("--n_layers_D", type=int, default=4, help="The number of conv layers in the discriminator; effective when netD=='n_layers'")
+    parser.add_argument("--dis_arch", type=str, default='basic', help="The architecture's name: basic | n_layers | pixel")
+    parser.add_argument("--n_layers_D", type=int, default=3, help="The number of conv layers in the discriminator; effective when netD=='n_layers'")
     parser.add_argument("--norm", type=str, default='instance', help="The type of normalization layers used in the network, either BN or IN.")
     parser.add_argument("--init_type", type=str, default='normal', help="The name of the initialization method for network weights")
     parser.add_argument("--init_gain", type=float, default=0.02, help="Scaling factor for normal, xavier and orthogonal")
