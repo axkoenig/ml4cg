@@ -188,6 +188,9 @@ class Net(pl.LightningModule):
             img = img.view(img.size(0), self.hparams.nc, self.hparams.img_size, self.hparams.img_size)
             self.generated_imgs = img
 
+            print("self.generated_imgs with mixed 1 has shape:")
+            print(self.generated_imgs.shape)
+
             keys = ["m2"]
             # One can either train GAN only on mixed images (improves quality of mixed images) or also on reconstructed
             # keys = ["m2", "r1", "r2"]
@@ -196,6 +199,8 @@ class Net(pl.LightningModule):
                 img = img.view(img.size(0), self.hparams.nc, self.hparams.img_size, self.hparams.img_size) # img.size(0) is number of images generated from this batch
                 self.generated_imgs = torch.cat((self.generated_imgs, out.get(key)), 0)
 
+            print("self.generated_imgs has shape:")
+            print(self.generated_imgs.shape)
             """
             Explanation of the number of generated images:
             We have a default batch size of 16, we divide this by 2, 
@@ -273,9 +278,9 @@ class Net(pl.LightningModule):
             real_loss = self.criterionGAN(self.dis(imgs), True)
 
             # How well can it label images as fake ones?
-            fake = torch.zeros(self.hparams.batch_size, 1)
+            # fake = torch.zeros(self.hparams.batch_size, 1)
             if self.on_gpu:
-                fake = fake.cuda(imgs.device.index)
+                self.generated_imgs = self.generated_imgs.cuda(imgs.device.index)
             
             fake_loss = self.criterionGAN(self.dis(self.generated_imgs.detach()), False)
 
