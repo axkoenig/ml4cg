@@ -38,8 +38,11 @@ class Net(pl.LightningModule):
         self.hparams = hparams
         self.criterionGAN = GANLoss(self.hparams.gan_mode) # define GAN loss
         self.gen = networks.Generator(hparams)
-        self.dis = networks.define_D(self.hparams.input_nc, self.hparams.nfd, self.hparams.dis_arch,
+        self.dis = networks.define_D(self.hparams.nc, self.hparams.nfd, self.hparams.dis_arch,
                                             self.hparams.n_layers_D, self.hparams.norm, self.hparams.init_type, self.hparams.init_gain, [])
+
+        # cache for generated images
+        self.generated_imgs = None
 
     def forward(self, x1, x2):
         """Forward pass of network
@@ -242,7 +245,7 @@ class Net(pl.LightningModule):
             if self.on_gpu:
                 valid = valid.cuda(imgs.device.index)
 
-            g_loss = self.criterionGAN(self.discriminator(self.generated_imgs), valid)
+            g_loss = self.criterionGAN(self.dis(self.generated_imgs), True)
 
             # over all loss for generator
             loss = self.hparams.alpha * (vgg_loss_b + vgg_loss_b) + self.hparams.gamma * (cycle_loss_a + cycle_loss_b) + self.hparams.lambda_g * g_loss
@@ -267,14 +270,14 @@ class Net(pl.LightningModule):
             if self.on_gpu:
                 valid = valid.cuda(imgs.device.index)
             
-            real_loss = self.criterionGAN(self.discriminator(imgs), valid)
+            real_loss = self.criterionGAN(self.dis(imgs), True)
 
             # How well can it label images as fake ones?
             fake = torch.zeros(self.hparams.batch_size, 1)
             if self.on_gpu:
                 fake = fake.cuda(imgs.device.index)
             
-            fake_loss = self.criterionGAN(self.discriminator(self.generated_imgs.detach()), fake)
+            fake_loss = self.criterionGAN(self.dis(self.generated_imgs.detach()), False)
 
             # discriminator loss is the average of loss for classifying real and fake images
             d_loss = ((real_loss + fake_loss) / 2) * 0.5
@@ -393,7 +396,7 @@ if __name__ == "__main__":
     parser = ArgumentParser()
 
     parser.add_argument("--data_root", type=str, default="../../../data/celebA", help="Data root directory")
-    parser.add_argument("--log_dir", type=str, default="funit_grid_logs", help="Logging directory")
+    parser.add_argument("--log_dir", type=str, default="GAN_logs", help="Logging directory")
     parser.add_argument("--num_workers", type=int, default=4, help="num_workers > 0 turns on multi-process data loading")
     parser.add_argument("--img_size", type=int, default=128, help="Spatial size of training images")
     parser.add_argument("--max_epochs", type=int, default=20, help="Number of maximum training epochs")
@@ -411,13 +414,13 @@ if __name__ == "__main__":
     parser.add_argument("--n_res_blks", type=int, default=2, help="number of ResBlks in content encoder")
     parser.add_argument("--latent_dim", type=int, default=1024, help="Size of latent class code")
 
-    # parser.add_argument("--alpha", type=float, default=1.0, help="Weight of vgg perceptual loss")
+    parser.add_argument("--alpha", type=float, default=1.0, help="Weight of vgg perceptual loss")
     parser.add_argument("--gamma", type=float, default=10.0, help="Weight of cycle consistency losses")
 
     # hyper parameters for adversarial training
     parser.add_argument("--lr_gen", type=float, default=1.0, help="Learning rate of generator network")
     parser.add_argument("--lr_dis", type=float, default=1.0, help="Learning rate of discriminator network")    
-    parser.add_argument("--input_nc", type=int, default=3, help="The number of channels in input images")
+    parser.add_argument("--nc", type=int, default=3, help="The number of channels in input images")
     parser.add_argument("--nfd", type=int, default=64, help="The number of filters in the first conv layer of the discriminator")
     parser.add_argument("--dis_arch", type=str, default='n_layers', help="The architecture's name: basic | n_layers | pixel")
     parser.add_argument("--n_layers_D", type=int, default=4, help="The number of conv layers in the discriminator; effective when netD=='n_layers'")
@@ -425,7 +428,7 @@ if __name__ == "__main__":
     parser.add_argument("--init_type", type=str, default='normal', help="The name of the initialization method for network weights")
     parser.add_argument("--init_gain", type=float, default=0.02, help="Scaling factor for normal, xavier and orthogonal")
     parser.add_argument("--gan_mode", type=str, default='lsgan', help="The type of GAN objective. It currently supports vanilla, lsgan, and wgangp.")
-    parser.add_argument("--gpu_ids", type=list, default=[], help="Which GPUs the network runs on: e.g., 0,1,2")
+    parser.add_argument("--gpu_ids", type=list, default=[0, 1], help="Which GPUs the network runs on: e.g., 0,1,2")
     parser.add_argument("--lambda_g", type=float, default=1.0, help="Weight of generator loss")
     # parser.add_argument("--lambda_d", type=float, default=1.0, help="Weight of discriminator loss")
 
