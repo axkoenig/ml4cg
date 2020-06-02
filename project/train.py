@@ -54,7 +54,6 @@ class Net(pl.LightningModule):
         """
         return self.gen(x1, x2)
 
-
     def prepare_data(self):
 
         transform = transforms.Compose(
@@ -239,7 +238,7 @@ class Net(pl.LightningModule):
             # cycle consistency loss
             cycle_loss_a = F.mse_loss(out["x1_a"], out["m1_a"]) + F.mse_loss(out["x2_a"], out["m2_a"])
             cycle_loss_b = F.mse_loss(out["x1_b"], out["m2_b"]) + F.mse_loss(out["x2_b"], out["m1_b"])
-
+            
             g_loss = self.criterionGAN(self.dis(self.generated_imgs), True)
 
             # over all loss for generator
@@ -419,8 +418,8 @@ if __name__ == "__main__":
     parser.add_argument("--gamma", type=float, default=10.0, help="Weight of cycle consistency losses")
 
     # hyper parameters for adversarial training
-    parser.add_argument("--lr_gen", type=float, default=1.0, help="Learning rate of generator network")
-    parser.add_argument("--lr_dis", type=float, default=1.0, help="Learning rate of discriminator network")    
+    parser.add_argument("--lr_gen", type=float, default=0.0002, help="Learning rate of generator network")
+    parser.add_argument("--lr_dis", type=float, default=0.0002, help="Learning rate of discriminator network")    
     parser.add_argument("--nc", type=int, default=3, help="The number of channels in input images")
     parser.add_argument("--nfd", type=int, default=64, help="The number of filters in the first conv layer of the discriminator")
     parser.add_argument("--dis_arch", type=str, default='basic', help="The architecture's name: basic | n_layers | pixel")
