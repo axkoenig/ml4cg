@@ -1,6 +1,7 @@
 __author__ = "Alexander Koenig, Li Nguyen"
 
 from argparse import ArgumentParser
+import os
 import math
 import pytorch_lightning as pl
 import torch as torch
@@ -39,7 +40,12 @@ class Net(pl.LightningModule):
         self.criterionGAN = GANLoss(self.hparams.gan_mode) # define GAN loss
         self.gen = networks.Generator(hparams)
         self.dis = networks.define_D(self.hparams.nc, self.hparams.nfd, self.hparams.dis_arch,
-                                            self.hparams.n_layers_D, self.hparams.norm, self.hparams.init_type, self.hparams.init_gain, [])
+                                            self.hparams.n_layers_D, self.hparams.norm, self.hparams.init_type, self.hparams.init_gain, self.hparams.gpu_ids)
+
+
+        self.vgg = Vgg16()
+        if hparams.gpus > 0:
+            self.vgg.cuda()
 
         # cache for generated images
         self.generated_imgs = None
@@ -107,10 +113,10 @@ class Net(pl.LightningModule):
         lr_g = self.hparams.lr_gen
         lr_d = self.hparams.lr_dis
         b1 = self.hparams.beta1
-        b2 = self.hparams.beta2        
+        b2 = self.hparams.beta2
         gen_opt = Adam(self.gen.parameters(), lr=lr_g, betas=(b1, b2))
-        dis_opt = Adam(self.dis.parameters(), lr=lr_d, betas=(b1, b2))        
-        return [gen_opt, dis_opt], [] 
+        dis_opt = Adam(self.dis.parameters(), lr=lr_d, betas=(b1, b2))
+        return [gen_opt, dis_opt], []
 
     def plot(self, input_batches, mixed_batches, reconstr_batches, prefix, n=2):
         """Plots n triplets of ((x1, x2), (m1, m2), (r1, r2)) 
@@ -156,16 +162,7 @@ class Net(pl.LightningModule):
         self.logger.experiment.add_image(name, plot)
    
     def training_step(self, batch, batch_idx, optimizer_idx):
-        
-        # GPU enabling
-        if (self.hparams.gpus > 0):
-            dtype = torch.cuda.FloatTensor
-            # torch.cuda.set_device(self.hparams.gpus)
-            vgg = Vgg16().type(dtype)
-        # train on CPU
-        else:
-            vgg = Vgg16()
-                    
+
         # retrieve batch and split in half, first half represents domain A other half represents domain B
         imgs, _ = batch
         split_idx = imgs.shape[0] // 2
@@ -175,11 +172,6 @@ class Net(pl.LightningModule):
         # train generator
         if optimizer_idx == 0:
 
-            # match gpu device (or keep as cpu)
-            if self.on_gpu:
-                x1 = x1.cuda(imgs.device.index)
-                x2 = x2.cuda(imgs.device.index)
-            
             # forward pass: generate images by passing through generator
             out = self.gen(x1, x2)
 
@@ -191,7 +183,7 @@ class Net(pl.LightningModule):
             keys = ["m2"]
             # One can either train GAN only on mixed images (improves quality of mixed images) or also on reconstructed
             # keys = ["m2", "r1", "r2"]
-            for key in keys:                
+            for key in keys:
                 img = out.get(key)
                 img = img.view(img.size(0), self.hparams.nc, self.hparams.img_size, self.hparams.img_size) # img.size(0) is number of images generated from this batch
                 self.generated_imgs = torch.cat((self.generated_imgs, out.get(key)), 0)
@@ -208,12 +200,12 @@ class Net(pl.LightningModule):
             If using only mixed images, generated_imgs should have shape ([16, 3, 128, 128]) respectively.
             """
             # reconstruction loss using VGG perceptual loss: get vgg features
-            orig_features_1 = vgg(x1)
-            orig_features_2 = vgg(x2)
-            
+            orig_features_1 = self.vgg(x1)
+            orig_features_2 = self.vgg(x2)
+
             # x2_features = vgg(x2)
-            recon_features_1 = vgg(out['r1'])
-            recon_features_2 = vgg(out['r2'])
+            recon_features_1 = self.vgg(out['r1'])
+            recon_features_2 = self.vgg(out['r2'])
 
             # compare features in all 4 layers of vgg
             # loss = 0.0
@@ -226,8 +218,8 @@ class Net(pl.LightningModule):
             #     loss += F.mse_loss(orig2, recon2)
 
             # comparing features at second layer of VGG
-            orig1 = orig_features_1[1]      
-            orig2 = orig_features_2[1]      
+            orig1 = orig_features_1[1]
+            orig2 = orig_features_2[1]
             recon1 = recon_features_1[1]
             recon2 = recon_features_2[1]
 
@@ -238,7 +230,7 @@ class Net(pl.LightningModule):
             # cycle consistency loss
             cycle_loss_a = F.mse_loss(out["x1_a"], out["m1_a"]) + F.mse_loss(out["x2_a"], out["m2_a"])
             cycle_loss_b = F.mse_loss(out["x1_b"], out["m2_b"]) + F.mse_loss(out["x2_b"], out["m1_b"])
-            
+
             g_loss = self.criterionGAN(self.dis(self.generated_imgs), True)
 
             # over all loss for generator
@@ -247,7 +239,7 @@ class Net(pl.LightningModule):
             # plot input, mixed and reconstructed images at beginning of epoch
             if batch_idx == 0:
                 self.plot((x1, x2), (out["m1"], out["m2"]), (out["r1"], out["r2"]), prefix='')
-            
+
             tqdm_dict = {'g_loss': g_loss}
             output = OrderedDict({
                 'loss': loss,
@@ -258,25 +250,9 @@ class Net(pl.LightningModule):
 
         # train discriminator: Measure discriminator's ability to classify real from generated samples
         if optimizer_idx == 1:
-            
-            # forward pass: generate images by passing through generator
-            out = self.gen(x1, x2)
 
-            # save all generated images to be classified by discriminator in array (initializing the generated_imgs object)         
-            img = out.get("m1")
-            img = img.view(img.size(0), self.hparams.nc, self.hparams.img_size, self.hparams.img_size)
-            self.generated_imgs = img
-
-            keys = ["m2"]
-            # One can either train GAN only on mixed images (improves quality of mixed images) or also on reconstructed
-            # keys = ["m2", "r1", "r2"]
-            for key in keys:                
-                img = out.get(key)
-                img = img.view(img.size(0), self.hparams.nc, self.hparams.img_size, self.hparams.img_size) # img.size(0) is number of images generated from this batch
-                self.generated_imgs = torch.cat((self.generated_imgs, out.get(key)), 0)
-                
             real_loss = self.criterionGAN(self.dis(imgs), True)
-            
+
             fake_loss = self.criterionGAN(self.dis(self.generated_imgs.detach()), False)
 
             # discriminator loss is the average of loss for classifying real and fake images
@@ -309,15 +285,6 @@ class Net(pl.LightningModule):
         Instead, qualitative and quantitative methods have to be used. 
         Therefore, the GAN loss is not inluded in the validation and test step.
         """
-        # GPU enabling
-        if (self.hparams.gpus > 0):
-            dtype = torch.cuda.FloatTensor
-            # torch.cuda.set_device(self.hparams.gpus)
-            vgg = Vgg16().type(dtype)
-        # train on CPU
-        else:
-            vgg = Vgg16()
-
 
         # retrieve batch and split in half
         imgs, _ = batch
@@ -325,21 +292,16 @@ class Net(pl.LightningModule):
         x1 = imgs[:split_idx]
         x2 = imgs[split_idx:]
 
-        # match gpu device (or keep as cpu)
-        if self.on_gpu:
-            x1 = x1.cuda(imgs.device.index)
-            x2 = x2.cuda(imgs.device.index)
-
         # forward pass
         out = self(x1, x2)
-        
+
         # reconstruction loss using VGG perceptual loss: get vgg features
-        orig_features_1 = vgg(x1)
-        orig_features_2 = vgg(x2)
-        
+        orig_features_1 = self.vgg(x1)
+        orig_features_2 = self.vgg(x2)
+
         # x2_features = vgg(x2)
-        recon_features_1 = vgg(out['r1'])
-        recon_features_2 = vgg(out['r2'])
+        recon_features_1 = self.vgg(out['r1'])
+        recon_features_2 = self.vgg(out['r2'])
 
         # compare features in all 4 layers of vgg
         # loss = 0.0
@@ -351,8 +313,8 @@ class Net(pl.LightningModule):
         #     loss += F.mse_loss(orig1, recon1)
         #     loss += F.mse_loss(orig2, recon2)
 
-        orig1 = orig_features_1[1]      
-        orig2 = orig_features_2[1]      
+        orig1 = orig_features_1[1]
+        orig2 = orig_features_2[1]
         recon1 = recon_features_1[1]
         recon2 = recon_features_2[1]
 
@@ -388,7 +350,18 @@ def main(hparams):
 
     model = Net(hparams)
 
-    trainer = Trainer(logger=logger, gpus=hparams.gpus, max_epochs=hparams.max_epochs, nb_sanity_val_steps=0, distributed_backend='dp')
+    checkpoint_callback = ModelCheckpoint(
+        filepath='checkpoints/{epoch}-{val_loss:.2f}',
+        save_top_k=200,
+        verbose=True,
+        monitor='val_loss',
+        save_weights_only=True,
+        period=1,
+        mode='min',
+        prefix=''
+    )
+
+    trainer = Trainer(logger=logger, checkpoint_callback=checkpoint_callback, gpus=hparams.gpus, max_epochs=hparams.max_epochs, distributed_backend='ddp')
     trainer.fit(model)
     trainer.test(model)
 
@@ -396,16 +369,16 @@ if __name__ == "__main__":
     parser = ArgumentParser()
 
     parser.add_argument("--data_root", type=str, default="../../../data/celebA", help="Data root directory")
-    parser.add_argument("--log_dir", type=str, default="GAN_logs", help="Logging directory")
+    parser.add_argument("--log_dir", type=str, default="200_GAN_logs", help="Logging directory")
     parser.add_argument("--num_workers", type=int, default=4, help="num_workers > 0 turns on multi-process data loading")
     parser.add_argument("--img_size", type=int, default=128, help="Spatial size of training images")
-    parser.add_argument("--max_epochs", type=int, default=20, help="Number of maximum training epochs")
-    parser.add_argument("--batch_size", type=int, default=16, help="Batch size during training")
+    parser.add_argument("--max_epochs", type=int, default=200, help="Number of maximum training epochs")
+    parser.add_argument("--batch_size", type=int, default=4, help="Batch size during training")
     parser.add_argument("--lr", type=float, default=0.0002, help="Learning rate for optimizer")
     parser.add_argument("--beta1", type=float, default=0.9, help="Beta1 hyperparameter for Adam optimizer")
     parser.add_argument("--beta2", type=float, default=0.999, help="Beta2 hyperparameter for Adam optimizer")
-    parser.add_argument("--gpus", type=int, default=2, help="Number of GPUs. Use 0 for CPU mode")
-    
+    parser.add_argument("--gpus", type=int, default=4, help="Number of GPUs. Use 0 for CPU mode")
+
     parser.add_argument("--nf", type=int, default=64, help="Number of feature maps in encoders")
     parser.add_argument("--nf_mlp", type=int, default=256, help="Number of feature maps for MLP module, i.e. dimension of FC layers")
     parser.add_argument("--down_class", type=int, default=4, help="How often image is downsampled by half of its size in class encoder")
@@ -419,7 +392,7 @@ if __name__ == "__main__":
 
     # hyper parameters for adversarial training
     parser.add_argument("--lr_gen", type=float, default=0.0002, help="Learning rate of generator network")
-    parser.add_argument("--lr_dis", type=float, default=0.0002, help="Learning rate of discriminator network")    
+    parser.add_argument("--lr_dis", type=float, default=0.0002, help="Learning rate of discriminator network")
     parser.add_argument("--nc", type=int, default=3, help="The number of channels in input images")
     parser.add_argument("--nfd", type=int, default=64, help="The number of filters in the first conv layer of the discriminator")
     parser.add_argument("--dis_arch", type=str, default='basic', help="The architecture's name: basic | n_layers | pixel")
@@ -428,7 +401,7 @@ if __name__ == "__main__":
     parser.add_argument("--init_type", type=str, default='normal', help="The name of the initialization method for network weights")
     parser.add_argument("--init_gain", type=float, default=0.02, help="Scaling factor for normal, xavier and orthogonal")
     parser.add_argument("--gan_mode", type=str, default='lsgan', help="The type of GAN objective. It currently supports vanilla, lsgan, and wgangp.")
-    parser.add_argument("--gpu_ids", type=list, default=[0, 1], help="Which GPUs the network runs on: e.g., 0,1,2")
+    parser.add_argument("--gpu_ids", type=list, default=[2,3,4,5], help="Which GPUs the network runs on: e.g., 0,1,2")
     parser.add_argument("--lambda_g", type=float, default=1.0, help="Weight of generator loss")
     # parser.add_argument("--lambda_d", type=float, default=1.0, help="Weight of discriminator loss")
 

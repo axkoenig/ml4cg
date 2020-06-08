@@ -47,12 +47,6 @@ def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
         gpu_ids (int list) -- which GPUs the network runs on: e.g., 0,1,2
     Return an initialized network.
     """
-    print("Length of GPU Ids")
-    print(len(gpu_ids))
-    if len(gpu_ids) > 0:
-        assert(torch.cuda.is_available())
-        net.to(gpu_ids[0])
-        net = torch.nn.DataParallel(net, gpu_ids)  # multi-GPUs
     init_weights(net, init_type, init_gain=init_gain)
     return net
 
@@ -153,7 +147,7 @@ def define_D(input_nc, ndf, netD, n_layers_D=3, norm='batch', init_type='normal'
     Returns a discriminator
     Our current implementation provides three types of discriminators:
         [basic]: 'PatchGAN' classifier described in the original pix2pix paper.
-        It can classify whether 70×70 overlapping patches are real or fake.
+        It can classify whether 70?~W70 overlapping patches are real or fake.
         Such a patch-level discriminator architecture has fewer parameters
         than a full-image discriminator and can work on arbitrarily-sized images
         in a fully convolutional fashion.
