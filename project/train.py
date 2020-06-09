@@ -211,8 +211,8 @@ class Net(pl.LightningModule):
             loss = self.hparams.alpha * (vgg_loss_b + vgg_loss_b) + self.hparams.gamma * (cycle_loss_a + cycle_loss_b) + self.hparams.lambda_g * g_loss
 
             # plot input, mixed and reconstructed images at beginning of epoch
-            if batch_idx == 0:
-                self.plot((x1, x2), (out["m1"], out["m2"]), (out["r1"], out["r2"]), prefix='')
+            #if batch_idx == 0:
+            #    self.plot((x1, x2), (out["m1"], out["m2"]), (out["r1"], out["r2"]), prefix='')
 
             tqdm_dict = {'g_loss': g_loss}
             output = OrderedDict({
@@ -303,8 +303,8 @@ class Net(pl.LightningModule):
         loss = self.hparams.alpha * (vgg_loss_a + vgg_loss_b) + self.hparams.gamma * (cycle_loss_a + cycle_loss_b)
 
         # plot input, mixed and reconstructed images at beginning of epoch
-        if plot and batch_idx == 0:
-            self.plot((x1, x2), (out["m1"], out["m2"]), (out["r1"], out["r2"]), prefix)
+        #if plot and batch_idx == 0:
+        #    self.plot((x1, x2), (out["m1"], out["m2"]), (out["r1"], out["r2"]), prefix)
 
         # add underscore to prefix
         if prefix:
@@ -322,6 +322,7 @@ def main(hparams):
     logger = loggers.TensorBoardLogger(hparams.log_dir, name=f"{hparams.gamma}-CycleGAN_G2G")
 
     model = Net(hparams)
+
 
     checkpoint_callback = ModelCheckpoint(
         filepath='checkpoints/{epoch}-{val_loss:.2f}',
