@@ -1,8 +1,6 @@
 __author__ = "Alexander Koenig, Li Nguyen"
 
 from argparse import ArgumentParser
-import os
-import math
 import pytorch_lightning as pl
 import torch as torch
 from torch import nn
@@ -29,9 +27,6 @@ from vgg import Vgg16
 MEAN = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
 STD = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
 
-def recon_criterion(predict, target):
-    return torch.mean(torch.abs(predict - target))
-
 class Net(pl.LightningModule):
 
     def __init__(self, hparams):
@@ -42,10 +37,9 @@ class Net(pl.LightningModule):
         self.dis = networks.define_D(self.hparams.nc, self.hparams.nfd, self.hparams.dis_arch,
                                             self.hparams.n_layers_D, self.hparams.norm, self.hparams.init_type, self.hparams.init_gain, self.hparams.gpu_ids)
 
-
         self.vgg = Vgg16()
         if hparams.gpus > 0:
-            self.vgg.cuda()
+            self.vgg.cuda()            
 
         # cache for generated images
         self.generated_imgs = None
@@ -175,18 +169,8 @@ class Net(pl.LightningModule):
             # forward pass: generate images by passing through generator
             out = self.gen(x1, x2)
 
-            # save all generated images to be classified by discriminator in array (initializing the generated_imgs object)         
-            img = out.get("m1")
-            img = img.view(img.size(0), self.hparams.nc, self.hparams.img_size, self.hparams.img_size)
-            self.generated_imgs = img
-
-            keys = ["m2"]
-            # One can either train GAN only on mixed images (improves quality of mixed images) or also on reconstructed
-            # keys = ["m2", "r1", "r2"]
-            for key in keys:
-                img = out.get(key)
-                img = img.view(img.size(0), self.hparams.nc, self.hparams.img_size, self.hparams.img_size) # img.size(0) is number of images generated from this batch
-                self.generated_imgs = torch.cat((self.generated_imgs, out.get(key)), 0)
+            # save all generated images to be classified by discriminator in array (initializing the generated_imgs object)                                
+            self.generated_imgs = torch.cat((out['m1'], out['m2']), 0)
 
             """
             Explanation of the number of generated images:
@@ -207,23 +191,13 @@ class Net(pl.LightningModule):
             recon_features_1 = self.vgg(out['r1'])
             recon_features_2 = self.vgg(out['r2'])
 
-            # compare features in all 4 layers of vgg
-            # loss = 0.0
-            # for i in range(4):
-            #     orig1 = orig_features_1[i]      
-            #     orig2 = orig_features_2[i]      
-            #     recon1 = recon_features_1[i]
-            #     recon2 = recon_features_2[i]
-            #     loss += F.mse_loss(orig1, recon1)
-            #     loss += F.mse_loss(orig2, recon2)
-
             # comparing features at second layer of VGG
             orig1 = orig_features_1[1]
             orig2 = orig_features_2[1]
             recon1 = recon_features_1[1]
             recon2 = recon_features_2[1]
 
-            # calculate content loss (h_relu_2_2)
+            # calculate reconstruction loss (h_relu_2_2)
             vgg_loss_a = F.mse_loss(orig1, recon1)
             vgg_loss_b = F.mse_loss(orig2, recon2)
 
@@ -255,7 +229,6 @@ class Net(pl.LightningModule):
 
             fake_loss = self.criterionGAN(self.dis(self.generated_imgs.detach()), False)
 
-            # discriminator loss is the average of loss for classifying real and fake images
             # we take the objective times 0.5 which leads to the discriminator learning at half speed as compared to the generator
             d_loss = ((real_loss + fake_loss) / 2) * 0.5
 
@@ -403,7 +376,6 @@ if __name__ == "__main__":
     parser.add_argument("--gan_mode", type=str, default='lsgan', help="The type of GAN objective. It currently supports vanilla, lsgan, and wgangp.")
     parser.add_argument("--gpu_ids", type=list, default=[2,3,4,5], help="Which GPUs the network runs on: e.g., 0,1,2")
     parser.add_argument("--lambda_g", type=float, default=1.0, help="Weight of generator loss")
-    # parser.add_argument("--lambda_d", type=float, default=1.0, help="Weight of discriminator loss")
 
     args = parser.parse_args()
 
