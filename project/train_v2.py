@@ -36,8 +36,7 @@ class Net(pl.LightningModule):
 
         Note that for brevity we use a slightly different notation than in the
         presentation. The mixed images m1 and m2 correspond to xhat_a1_b2 and 
-        xhat_a2_b1 in the presentation, respectively. The reconstructed images
-        r1 and r2 correspond to xhat_1 and xhat_2, respectively. 
+        xhat_a2_b1 in the presentation, respectively.
 
         Args:
             x1 (tensor): first input image
@@ -56,9 +55,11 @@ class Net(pl.LightningModule):
         x1_a_ada = self.modulation(x1_a)
         x2_a_ada = self.modulation(x2_a)
 
-        # generate mixed images
+        # generate mixed and reconstructed images
         m1 = self.generator(x2_b, x1_a_ada)
         m2 = self.generator(x1_b, x2_a_ada)
+        r1 = self.generator(x1_b, x1_a_ada)
+        r2 = self.generator(x2_b, x2_a_ada)
 
         # disassembly of mixed images
         m1_a = self.encoder_a(m1)
@@ -70,9 +71,9 @@ class Net(pl.LightningModule):
         m1_a_ada = self.modulation(m1_a)
         m2_a_ada = self.modulation(m2_a)
 
-        # generate reconstructed images
-        r1 = self.generator(m2_b, m1_a_ada)
-        r2 = self.generator(m1_b, m2_a_ada)
+        # reassemble original images
+        x1_hat = self.generator(m2_b, m1_a_ada)
+        x2_hat = self.generator(m1_b, m2_a_ada)
 
         return {
             "x1_a": x1_a,
@@ -81,12 +82,14 @@ class Net(pl.LightningModule):
             "x2_b": x2_b,
             "m1": m1,
             "m2": m2,
+            "r1": r1,
+            "r2": r2,
             "m1_a": m1_a,
             "m1_b": m1_b,
             "m2_a": m2_a,
             "m2_b": m2_b,
-            "r1": r1,
-            "r2": r2,
+            "x1_hat": x1_hat,
+            "x2_hat": x2_hat,
         }
 
     def prepare_data(self):
@@ -140,7 +143,7 @@ class Net(pl.LightningModule):
         return Adam(self.parameters(), lr=self.hparams.lr, betas=(self.hparams.beta1, self.hparams.beta2))
 
     def plot(self, input_batches, mixed_batches, reconstr_batches, prefix, n=8):
-        """Plots n triplets of ((x1, x2), (m1, m2), (r1, r2)) 
+        """Plots n triplets of ((x1, x2), (m1, m2), (x1_hat, x2_hat)) 
 
         Args:
             input_batches (tuple): Two batches of input images
@@ -162,8 +165,8 @@ class Net(pl.LightningModule):
         x2 = [denormalization(i) for i in input_batches[1][:n]]
         m1 = [denormalization(i) for i in mixed_batches[0][:n]]
         m2 = [denormalization(i) for i in mixed_batches[1][:n]]
-        r1 = [denormalization(i) for i in reconstr_batches[0][:n]]
-        r2 = [denormalization(i) for i in reconstr_batches[1][:n]]
+        x1_hat = [denormalization(i) for i in reconstr_batches[0][:n]]
+        x2_hat = [denormalization(i) for i in reconstr_batches[1][:n]]
 
         # create empty plot and send to device
         plot = torch.tensor([], device=x1[0].device)
@@ -171,7 +174,7 @@ class Net(pl.LightningModule):
         for i in range(n):
             grid_top = vutils.make_grid([x1[i], x2[i]], 2)
             grid_mid = vutils.make_grid([m1[i], m2[i]], 2)
-            grid_bot = vutils.make_grid([r1[i], r2[i]], 2)
+            grid_bot = vutils.make_grid([x1_hat[i], x2_hat[i]], 2)
             grid_cat = torch.cat((grid_top, grid_mid, grid_bot), 1)
             plot = torch.cat((plot, grid_cat), 2)
 
@@ -215,7 +218,7 @@ class Net(pl.LightningModule):
 
         # plot input, mixed and reconstructed images at beginning of epoch
         if plot and batch_idx == 0:
-            self.plot((x1, x2), (out["m1"], out["m2"]), (out["r1"], out["r2"]), prefix)
+            self.plot((x1, x2), (out["m1"], out["m2"]), (out["x1_hat"], out["x2_hat"]), prefix)
 
         # add underscore to prefix
         if prefix:
@@ -231,7 +234,7 @@ class Net(pl.LightningModule):
 
 
 def main(hparams):
-    logger = loggers.TensorBoardLogger(hparams.log_dir, name=f"grid/old_arch_gam{hparams.gamma}")
+    logger = loggers.TensorBoardLogger(hparams.log_dir, name=f"v2_gam{hparams.gamma}")
 
     model = Net(hparams)
 
@@ -258,8 +261,8 @@ if __name__ == "__main__":
     parser.add_argument("--log_dir", type=str, default="/specific/netapp5_3/rent_public/dcor-01-2021/ronmokady/workshop20/team6/ml4cg/project/new_logs", help="Logging directory")
     parser.add_argument("--num_workers", type=int, default=4, help="num_workers > 0 turns on multi-process data loading")
     parser.add_argument("--img_size", type=int, default=128, help="Spatial size of training images")
-    parser.add_argument("--max_epochs", type=int, default=8, help="Number of maximum training epochs")
-    parser.add_argument("--batch_size", type=int, default=16, help="Batch size during training")
+    parser.add_argument("--max_epochs", type=int, default=15, help="Number of maximum training epochs")
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size during training")
     parser.add_argument("--lr", type=float, default=0.0002, help="Learning rate for optimizer")
     parser.add_argument("--beta1", type=float, default=0.9, help="Beta1 hyperparameter for Adam optimizer")
     parser.add_argument("--beta2", type=float, default=0.999, help="Beta2 hyperparameter for Adam optimizer")
@@ -270,7 +273,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_adain", type=int, default=4, help="Number of AdaIn layers in generator")
     parser.add_argument("--dim_adain", type=int, default=256, help="Dimension of AdaIn layer in generator")
     parser.add_argument("--alpha", type=float, default=1.0, help="Weight of reconstruction loss")
-    parser.add_argument("--gamma", type=float, default=0.5, help="Weight of cycle losses")
+    parser.add_argument("--gamma", type=float, default=0.4, help="Weight of cycle losses")
 
     ### NOTES
     # we use same class and content code size, whereas LORD used content_dim=128, class_dim=256
