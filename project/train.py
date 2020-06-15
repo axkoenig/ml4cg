@@ -38,8 +38,8 @@ class Net(pl.LightningModule):
                                             self.hparams.n_layers_D, self.hparams.norm, self.hparams.init_type, self.hparams.init_gain, self.hparams.gpu_ids)
 
         self.vgg = Vgg16()
-        if hparams.gpus > 0:
-            self.vgg.cuda()            
+        #if hparams.gpus > 0:
+        #    self.vgg.cuda()            
 
         # cache for generated images
         self.generated_imgs = None
@@ -208,7 +208,7 @@ class Net(pl.LightningModule):
             g_loss = self.criterionGAN(self.dis(self.generated_imgs), True)
 
             # over all loss for generator
-            loss = self.hparams.alpha * (vgg_loss_b + vgg_loss_b) + self.hparams.gamma * (cycle_loss_a + cycle_loss_b) + self.hparams.lambda_g * g_loss
+            loss = self.hparams.alpha * (vgg_loss_a + vgg_loss_b) + self.hparams.gamma * (cycle_loss_a + cycle_loss_b) + self.hparams.lambda_g * g_loss
 
             # plot input, mixed and reconstructed images at beginning of epoch
             #if batch_idx == 0:
