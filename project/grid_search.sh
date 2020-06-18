@@ -3,14 +3,12 @@
 eval "$(conda shell.bash hook)"
 conda activate team6
 
-max_epochs=20
-gpus=2
+max_epochs=10
+gpus=4
+batch_size=16
 
-for batch_size in 16 32 64
+for gamma in 20.0 50.0 200.0
 do
-    for gamma in 0.01 0.4 1 1.5 2
-    do
-        ( echo "Training G2G with --batch_size=$batch_size --gamma=$gamma" && \
-        CUDA_VISIBLE_DEVICES=0,1 python train.py --gpus=$gpus --batch_size=$batch_size --gamma=$gamma --max_epochs=$max_epochs 2>&1 ) | tee grid_logs/bs${batch_size}_gamma${gamma}.log
-    done
+    ( echo "Training G2G with --gamma=$gamma" && \
+    CUDA_VISIBLE_DEVICES=0,1,2,3 python train.py --gamma=$gamma --gpus=$gpus --max_epochs=$max_epochs --batch_size=$batch_size 2>&1 ) | tee logs_gam50/gamma${gamma}.log
 done
