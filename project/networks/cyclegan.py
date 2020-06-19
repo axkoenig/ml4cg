@@ -1,3 +1,7 @@
+"""
+Below code is adapted from https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix
+"""
+
 """ CycleGAN License
 Copyright (c) 2017, Jun-Yan Zhu and Taesung Park
 All rights reserved.
@@ -24,23 +28,13 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
-""" FUNIT License
-Copyright (C) 2019 NVIDIA Corporation.  All rights reserved.
-Licensed under the CC BY-NC-SA 4.0 license
-(https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
-"""
-import numpy as np
+import functools
 
 import torch
-from torch import tensor
-from torch import nn
-from torch import autograd
-import functools
+from torch import nn, tensor
 from torch.nn import init
 from torch.optim import lr_scheduler
 
-# file imports
-from blocks import LinearBlock, Conv2dBlock, ResBlocks
 
 """
 Code below this line including classes and functions:
@@ -55,14 +49,12 @@ Code below this line including classes and functions:
 taken from https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix.
 """
 
-
-def init_net(net, init_type="normal", init_gain=0.02, gpu_ids=[]):
+def init_net(net, init_type="normal", init_gain=0.02):
     """Initialize a network
     Parameters:
         net (network)      -- the network to be initialized
         init_type (str)    -- the name of an initialization method: normal | xavier | kaiming | orthogonal
         gain (float)       -- scaling factor for normal, xavier and orthogonal.
-        gpu_ids (int list) -- which GPUs the network runs on: e.g., 0,1,2
     Return an initialized network.
     """
     init_weights(net, init_type, init_gain=init_gain)
@@ -185,7 +177,6 @@ def define_D(
     norm="batch",
     init_type="normal",
     init_gain=0.02,
-    gpu_ids=[],
 ):
     """Create a discriminator
     Parameters:
@@ -196,7 +187,6 @@ def define_D(
         norm (str)         -- the type of normalization layers used in the network.
         init_type (str)    -- the name of the initialization method.
         init_gain (float)  -- scaling factor for normal, xavier and orthogonal.
-        gpu_ids (int list) -- which GPUs the network runs on: e.g., 0,1,2
     Returns a discriminator
     Our current implementation provides three types of discriminators:
         [basic]: 'PatchGAN' classifier described in the original pix2pix paper.
@@ -223,7 +213,7 @@ def define_D(
         raise NotImplementedError(
             "Discriminator model name [%s] is not recognized" % netD
         )
-    return init_net(net, init_type, init_gain, gpu_ids)
+    return init_net(net, init_type, init_gain)
 
 
 class NLayerDiscriminator(nn.Module):
@@ -328,306 +318,63 @@ class PixelDiscriminator(nn.Module):
         return self.net(input)
 
 
-"""
-Code below this line including classes and functions:
-    - Generator (modified forward pass)
-    - ClassModelEncoder
-    - ContentEncoder
-    - Decoder
-    - MLP
-    - assign_adain_params
-    - get_num_adain_params
-taken from https://github.com/NVlabs/FUNIT.
-"""
+class GANLoss(nn.Module):
+    """Define different GAN objectives.
+    The GANLoss class abstracts away the need to create the target label tensor
+    that has the same size as the input.
+    """
 
-
-class Generator(nn.Module):
-    def __init__(self, hparams):
-        super(Generator, self).__init__()
-        self.hparams = hparams
+    def __init__(self, gan_mode, target_real_label=1.0, target_fake_label=0.0):
+        """ Initialize the GANLoss class.
+        Parameters:
+            gan_mode (str) - - the type of GAN objective. It currently supports vanilla, lsgan, and wgangp.
+            target_real_label (bool) - - label for a real image
+            target_fake_label (bool) - - label of a fake image
+        Note: Do not use sigmoid as the last layer of Discriminator.
+        LSGAN needs no sigmoid. vanilla GANs will handle it with BCEWithLogitsLoss.
         """
-        Params:
-            - nf: number of feature maps of encoder and decoder
-            - nf_mlp: number of feature maps for MLP module, i.e. dimension of FC layers (256)
-            - down_class: how often image is downsampled by half of its size in class encoder
-            - down_content: how often image is downsampled by half of its size in content encoder
-            - n_mlp_blks: Number of FC layers in MLP module, in this case 3
-            - n_res_blks: number of ResBlks in content encoder, i.e. 2
-            - latent_dim: latent dimension of class code, i.e. 1024
-        """
-        nf = self.hparams.nf
-        nf_mlp = self.hparams.nf_mlp
-        down_class = self.hparams.down_class
-        down_content = self.hparams.down_content
-        n_mlp_blks = self.hparams.n_mlp_blks
-        n_res_blks = self.hparams.n_res_blks
-        latent_dim = self.hparams.latent_dim
+        super(GANLoss, self).__init__()
+        self.register_buffer("real_label", torch.tensor(target_real_label))
+        self.register_buffer("fake_label", torch.tensor(target_fake_label))
+        self.gan_mode = gan_mode
+        if gan_mode == "lsgan":
+            self.loss = nn.MSELoss()
+        elif gan_mode == "vanilla":
+            self.loss = nn.BCEWithLogitsLoss()
+        elif gan_mode in ["wgangp"]:
+            self.loss = None
+        else:
+            raise NotImplementedError("gan mode %s not implemented" % gan_mode)
 
-        # nf = hparams['nf']
-        # nf_mlp = hparams['nf_mlp']
-
-        self.enc_class_model = ClassModelEncoder(
-            down_class, 3, nf, latent_dim, norm="none", activ="relu", pad_type="reflect"
-        )
-
-        self.enc_content = ContentEncoder(
-            down_content, n_res_blks, 3, nf, "in", activ="relu", pad_type="reflect"
-        )
-
-        self.dec = Decoder(
-            down_content,
-            n_res_blks,
-            self.enc_content.output_dim,
-            3,
-            res_norm="adain",
-            activ="relu",
-            pad_type="reflect",
-        )
-
-        self.mlp = MLP(
-            latent_dim,
-            get_num_adain_params(self.dec),
-            nf_mlp,
-            n_mlp_blks,
-            norm="none",
-            activ="relu",
-        )
-
-    def forward(self, x1, x2):
-        """Forward pass of network
-        Note that for brevity we use a slightly different notation than in the
-        presentation. The mixed images m1 and m2 correspond to xhat_a1_b2 and 
-        xhat_a2_b1 in the presentation, respectively. The reconstructed images
-        r1 and r2 correspond to xhat_1 and xhat_2, respectively. 
-        Args:
-            x1 (tensor): first input image
-            x2 (tensor): second input image
+    def get_target_tensor(self, prediction, target_is_real):
+        """Create label tensors with the same size as the input.
+        Parameters:
+            prediction (tensor) - - tpyically the prediction from a discriminator
+            target_is_real (bool) - - if the ground truth label is for real images or fake images
         Returns:
-            dict: codes, mixed and reconstruced images
+            A label tensor filled with ground truth label, and with the size of the input
         """
-        # disassembly of original images: get class and content code for each image x1 and x2
-        x1_a, x1_b = self.encode(x1)
-        x2_a, x2_b = self.encode(x2)
 
-        # generate mixed images
-        m1 = self.decode(x1_a, x2_b)
-        m2 = self.decode(x2_a, x1_b)
+        if target_is_real:
+            target_tensor = self.real_label
+        else:
+            target_tensor = self.fake_label
+        return target_tensor.expand_as(prediction)
 
-        # disassembly of mixed images
-        m1_a, m1_b = self.encode(m1)
-        m2_a, m2_b = self.encode(m2)
-
-        # generate reconstructed images
-        r1 = self.decode(m1_a, m2_b)
-        r2 = self.decode(m2_a, m1_b)
-
-        return {
-            "x1_a": x1_a,
-            "x1_b": x1_b,
-            "x2_a": x2_a,
-            "x2_b": x2_b,
-            "m1": m1,
-            "m2": m2,
-            "m1_a": m1_a,
-            "m1_b": m1_b,
-            "m2_a": m2_a,
-            "m2_b": m2_b,
-            "r1": r1,
-            "r2": r2,
-        }
-
-    def encode(self, x):
-        # feed original images x1 and x2 into class and content encoder
-        content_code = self.enc_content(x)
-        class_code = self.enc_class_model(x)
-        return content_code, class_code
-
-    def decode(self, content_code, class_code):
-        # decode content and style codes to an image
-        adain_params = self.mlp(class_code)
-        assign_adain_params(adain_params, self.dec)
-        images = self.dec(content_code)
-        return images
-
-
-class ClassModelEncoder(nn.Module):
-    """
-    Params:
-        - downs: how often image is downsampled by half of its size
-        - ind_im: input dimensions of image, in this case 128 x 128 x 3
-        - dim: number of feature maps encoder, we call it nfe and for our case 64
-        - latent_dim: latent dimension of class code is 1 x 1 x latent_dim
-        - norm: normalization, either BN, IN, AdaIN or none
-        - activ: activation function, either relu, lrelu, tanh or none
-        - pad_type: reflect, replicate or zero
-    """
-
-    def __init__(self, downs, ind_im, dim, latent_dim, norm, activ, pad_type):
-        super(ClassModelEncoder, self).__init__()
-        self.model = []
-        self.model += [
-            Conv2dBlock(
-                ind_im, dim, 7, 1, 3, norm=norm, activation=activ, pad_type=pad_type
-            )
-        ]
-        for i in range(2):
-            self.model += [
-                Conv2dBlock(
-                    dim,
-                    2 * dim,
-                    4,
-                    2,
-                    1,
-                    norm=norm,
-                    activation=activ,
-                    pad_type=pad_type,
-                )
-            ]
-            dim *= 2
-        for i in range(downs - 2):
-            self.model += [
-                Conv2dBlock(
-                    dim, dim, 4, 2, 1, norm=norm, activation=activ, pad_type=pad_type
-                )
-            ]
-
-        self.model += [nn.AdaptiveAvgPool2d(1)]
-        self.model += [nn.Conv2d(dim, latent_dim, 1, 1, 0)]
-        self.model = nn.Sequential(*self.model)
-        self.output_dim = dim
-
-    def forward(self, x):
-        return self.model(x)
-
-
-class ContentEncoder(nn.Module):
-    """
-    Params:
-        - downs: how often image is downsampled by half of its size
-        - n_res: number of residual blocks, in this case 2
-        - input_dim: input dimension of image channels, i.e. 3 channels for 128 x 128 x 3
-        - dim: number of feature maps encoder, we call it nfe and for our case 64
-        - norm: normalization, either BN, IN, AdaIN or none
-        - activ: activation function, either relu, lrelu, tanh or none
-        - pad_type: reflect, replicate or zero
-    """
-
-    def __init__(self, downs, n_res, input_dim, dim, norm, activ, pad_type):
-        super(ContentEncoder, self).__init__()
-        self.model = []
-        self.model += [
-            Conv2dBlock(
-                input_dim, dim, 7, 1, 3, norm=norm, activation=activ, pad_type=pad_type
-            )
-        ]
-        for i in range(downs):
-            self.model += [
-                Conv2dBlock(
-                    dim,
-                    2 * dim,
-                    4,
-                    2,
-                    1,
-                    norm=norm,
-                    activation=activ,
-                    pad_type=pad_type,
-                )
-            ]
-            dim *= 2
-        self.model += [
-            ResBlocks(n_res, dim, norm=norm, activation=activ, pad_type=pad_type)
-        ]
-        self.model = nn.Sequential(*self.model)
-        self.output_dim = dim
-
-    def forward(self, x):
-        return self.model(x)
-
-
-class Decoder(nn.Module):
-    """
-    Params:
-        - ups: how often image is upsampled by half of its size (using nearest neighbor)
-        - n_res: number of residual blocks, in this case 2
-        - dim: number of feature maps encoder, we call it nfe and for our case 64
-        - out_dim: output dimension of image channels, i.e. 3 for 128 x 128 x 3
-        - res_norm: normalization, here using AdaIn to incorporate class code
-        - activ: activation function, either relu, lrelu, tanh or none
-        - pad_type: reflect, replicate or zero
-    """
-
-    def __init__(self, ups, n_res, dim, out_dim, res_norm, activ, pad_type):
-        super(Decoder, self).__init__()
-
-        self.model = []
-        self.model += [ResBlocks(n_res, dim, res_norm, activ, pad_type=pad_type)]
-        for i in range(ups):
-            self.model += [
-                nn.Upsample(scale_factor=2),
-                Conv2dBlock(
-                    dim,
-                    dim // 2,
-                    5,
-                    1,
-                    2,
-                    norm="in",
-                    activation=activ,
-                    pad_type=pad_type,
-                ),
-            ]
-            dim //= 2
-        self.model += [
-            Conv2dBlock(
-                dim, out_dim, 7, 1, 3, norm="none", activation="tanh", pad_type=pad_type
-            )
-        ]
-        self.model = nn.Sequential(*self.model)
-
-    def forward(self, x):
-        return self.model(x)
-
-
-class MLP(nn.Module):
-    """
-    Params:
-        - in_dim: input dimension into MLP module is dimension of class code, i.e. 1 x 1 x 1024
-        - out_dim: output dimension of MLP module, i.e. 256
-        - dim: dimension of FC layers, i.e. 256
-        - n_blk: how many FC layers
-        - norm: normalization, either BN, IN, AdaIN or none
-        - activ: activation function, either relu, lrelu, tanh or none
-    """
-
-    def __init__(self, in_dim, out_dim, dim, n_blk, norm, activ):
-
-        super(MLP, self).__init__()
-        self.model = []
-        self.model += [LinearBlock(in_dim, dim, norm=norm, activation=activ)]
-        for i in range(n_blk - 2):
-            self.model += [LinearBlock(dim, dim, norm=norm, activation=activ)]
-        self.model += [LinearBlock(dim, out_dim, norm="none", activation="none")]
-        self.model = nn.Sequential(*self.model)
-
-    def forward(self, x):
-        return self.model(x.view(x.size(0), -1))
-
-
-def assign_adain_params(adain_params, model):
-    # assign the adain_params to the AdaIN layers in model via MLP module
-    for m in model.modules():
-        if m.__class__.__name__ == "AdaptiveInstanceNorm2d":
-            mean = adain_params[:, : m.num_features]
-            std = adain_params[:, m.num_features : 2 * m.num_features]
-            m.bias = mean.contiguous().view(-1)
-            m.weight = std.contiguous().view(-1)
-            if adain_params.size(1) > 2 * m.num_features:
-                adain_params = adain_params[:, 2 * m.num_features :]
-
-
-def get_num_adain_params(model):
-    # return the number of AdaIN parameters needed by the model
-    num_adain_params = 0
-    for m in model.modules():
-        if m.__class__.__name__ == "AdaptiveInstanceNorm2d":
-            num_adain_params += 2 * m.num_features
-    return num_adain_params
+    def __call__(self, prediction, target_is_real):
+        """Calculate loss given Discriminator's output and grount truth labels.
+        Parameters:
+            prediction (tensor) - - tpyically the prediction output from a discriminator
+            target_is_real (bool) - - if the ground truth label is for real images or fake images
+        Returns:
+            the calculated loss.
+        """
+        if self.gan_mode in ["lsgan", "vanilla"]:
+            target_tensor = self.get_target_tensor(prediction, target_is_real)
+            loss = self.loss(prediction, target_tensor)
+        elif self.gan_mode == "wgangp":
+            if target_is_real:
+                loss = -prediction.mean()
+            else:
+                loss = prediction.mean()
+        return loss
