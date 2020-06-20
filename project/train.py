@@ -32,7 +32,14 @@ class Net(pl.LightningModule):
         super(Net, self).__init__()
         self.hparams = hparams
         
-        self.gen = funit.Generator(hparams)
+        self.gen = funit.Generator(
+            self.hparams.nf,
+            self.hparams.nf_mlp,
+            self.hparams.down_class,
+            self.hparams.down_content,
+            self.hparams.n_mlp_blks,
+            self.hparams.n_res_blks,
+            self.hparams.latent_dim)
         self.dis = cyclegan.define_D(
             self.hparams.nc,
             self.hparams.nfd,
@@ -43,7 +50,7 @@ class Net(pl.LightningModule):
             self.hparams.init_gain,
         )
         self.vgg = Vgg16()
-        self.id_enc = init_id_encoder(self.hparams)
+        self.id_enc = init_id_encoder(self.hparams.face_detector_pth)
         self.gan_criterion = cyclegan.GANLoss(self.hparams.gan_mode)
         self.mixed_imgs = None
 
@@ -184,7 +191,7 @@ class Net(pl.LightningModule):
         mixed_id_features_1, _ = self.id_enc(out["m1"])
         mixed_id_features_2, _ = self.id_enc(out["m2"])
 
-        id_loss = F.mse_loss(orig_id_features_1, mixed_id_features_2) + F.mse_loss(orig_id_features_2, mixed_id_features_1)
+        id_loss = F.l1_loss(orig_id_features_1, mixed_id_features_2) + F.l1_loss(orig_id_features_2, mixed_id_features_1)
 
         ### GENERATOR LOSS ###
 

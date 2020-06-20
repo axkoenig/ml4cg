@@ -225,9 +225,8 @@ taken from networks.py from https://github.com/NVlabs/FUNIT.
 """
 
 class Generator(nn.Module):
-    def __init__(self, hparams):
+    def __init__(self, nf, nf_mlp, down_class, down_content, n_mlp_blks, n_res_blks, latent_dim):
         super(Generator, self).__init__()
-        self.hparams = hparams
         """
         Params:
             - nf: number of feature maps of encoder and decoder
@@ -238,13 +237,6 @@ class Generator(nn.Module):
             - n_res_blks: number of ResBlks in content encoder, i.e. 2
             - latent_dim: latent dimension of class code, i.e. 1024
         """
-        nf = self.hparams.nf
-        nf_mlp = self.hparams.nf_mlp
-        down_class = self.hparams.down_class
-        down_content = self.hparams.down_content
-        n_mlp_blks = self.hparams.n_mlp_blks
-        n_res_blks = self.hparams.n_res_blks
-        latent_dim = self.hparams.latent_dim
 
         self.enc_class_model = ClassModelEncoder(
             down_class, 3, nf, latent_dim, norm="none", activ="relu", pad_type="reflect"

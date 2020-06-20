@@ -8,12 +8,12 @@ class Identity(nn.Module):
     def forward(self, x):
         return x
 
-def init_id_encoder(hparams):
+def init_id_encoder(face_detector_pth):
     """Turns pretrained face detector into identity encoder
     """
     # load model 
     face_enc = Resnet50_ft()
-    face_enc.load_state_dict(torch.load(hparams.face_detector_pth))
+    face_enc.load_state_dict(torch.load(face_detector_pth))
     face_enc.eval()
 
     # freeze weights 
