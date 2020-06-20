@@ -193,10 +193,14 @@ class Net(pl.LightningModule):
 
         id_loss = F.l1_loss(orig_id_features_1, mixed_id_features_2) + F.l1_loss(orig_id_features_2, mixed_id_features_1)
 
-        ### GENERATOR LOSS ###
+        ### ADVERSARIAL LOSS ###
+        
+        adv_g_loss = self.gan_criterion(self.dis(self.mixed_imgs), True)
 
-        loss = self.hparams.alpha * vgg_loss + self.hparams.gamma * cycle_loss + self.hparams.delta * id_loss
-        log = {f"{prefix}/vgg_loss": vgg_loss, f"{prefix}/cycle_loss": cycle_loss, f"{prefix}/id_loss": id_loss}
+        ### OVERALL GENERATOR LOSS ###
+
+        loss = self.hparams.alpha * vgg_loss + self.hparams.gamma * cycle_loss + self.hparams.delta * id_loss + self.hparams.lambda_g * adv_g_loss
+        log = {f"{prefix}/vgg_loss": vgg_loss, f"{prefix}/cycle_loss": cycle_loss, f"{prefix}/id_loss": id_loss, f"{prefix}/adv_g_loss": adv_g_loss}
 
         return loss, log
 
@@ -217,17 +221,13 @@ class Net(pl.LightningModule):
 
             out = self.gen(x1, x2)
             self.mixed_imgs = torch.cat((out["m1"], out["m2"]), 0)
-
-            # add adversarial loss to generator loss
-            adv_g_loss = self.gan_criterion(self.dis(self.mixed_imgs), True)
             loss, log = self.calc_g_loss(x1, x2, out, prefix="train")
-            loss += self.hparams.lambda_g * adv_g_loss
 
             # plot at beginning of epoch
             if batch_idx == 0:
                 self.plot((x1, x2), (out["m1"], out["m2"]), (out["r1"], out["r2"]), "train")
 
-            log.update({"train/adv_g_loss": adv_g_loss, "train/g_loss": loss})
+            log.update({"train/g_loss": loss})
             return {"loss": loss, "progress_bar": log, "log": log}
 
         # DISCRIMINATOR STEP
