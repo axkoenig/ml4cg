@@ -1,27 +1,26 @@
 __author__ = "Alexander Koenig, Li Nguyen"
 
-from argparse import ArgumentParser
-import pytorch_lightning as pl
-import torch as torch
-from torch import nn
-import torch.nn.init as init
-import torch.nn.functional as F
-import torchvision.transforms as transforms
-import torchvision.utils as vutils
-from torchvision import models
-from pytorch_lightning import Trainer, loggers
-from torch.optim import Adam, RMSprop
-from torch.utils.data import DataLoader, Subset
-from torchvision.datasets import ImageFolder
-from torchsummary import summary
 from collections import OrderedDict
 
+import pytorch_lightning as pl
+import torch as torch
+import torch.nn.functional as F
+import torch.nn.init as init
+import torchvision.transforms as transforms
+import torchvision.utils as vutils
+from pytorch_lightning import Trainer, loggers
 from pytorch_lightning.callbacks import ModelCheckpoint
+from torch import nn
+from torch.optim import Adam, RMSprop
+from torch.utils.data import DataLoader, Subset
+from torchsummary import summary
+from torchvision import models
+from torchvision.datasets import ImageFolder
 
-# imports from other files
-import networks
-from GANLoss import GANLoss
-from vgg import Vgg16
+from args import parse_args
+from networks import cyclegan, funit, vgg, resnet
+from networks.resnet import init_id_encoder
+from networks.vgg import Vgg16
 
 # normalization constants
 MEAN = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
@@ -32,9 +31,16 @@ class Net(pl.LightningModule):
     def __init__(self, hparams):
         super(Net, self).__init__()
         self.hparams = hparams
-        self.criterionGAN = GANLoss(self.hparams.gan_mode)  # define GAN loss
-        self.gen = networks.Generator(hparams)
-        self.dis = networks.define_D(
+        
+        self.gen = funit.Generator(
+            self.hparams.nf,
+            self.hparams.nf_mlp,
+            self.hparams.down_class,
+            self.hparams.down_content,
+            self.hparams.n_mlp_blks,
+            self.hparams.n_res_blks,
+            self.hparams.latent_dim)
+        self.dis = cyclegan.define_D(
             self.hparams.nc,
             self.hparams.nfd,
             self.hparams.dis_arch,
@@ -42,13 +48,11 @@ class Net(pl.LightningModule):
             self.hparams.norm,
             self.hparams.init_type,
             self.hparams.init_gain,
-            self.hparams.gpu_ids,
         )
-
         self.vgg = Vgg16()
-
-        # cache for generated images
-        self.generated_imgs = None
+        self.id_enc = init_id_encoder(self.hparams.face_detector_pth)
+        self.gan_criterion = cyclegan.GANLoss(self.hparams.gan_mode)
+        self.mixed_imgs = None
 
     def forward(self, x1, x2):
         """Forward pass of network
@@ -95,7 +99,6 @@ class Net(pl.LightningModule):
         return DataLoader(
             self.val_dataset,
             batch_size=self.hparams.batch_size,
-            shuffle=False,
             num_workers=self.hparams.num_workers,
             drop_last=True,
         )
@@ -104,18 +107,13 @@ class Net(pl.LightningModule):
         return DataLoader(
             self.test_dataset,
             batch_size=self.hparams.batch_size,
-            shuffle=False,
             num_workers=self.hparams.num_workers,
             drop_last=True,
         )
 
     def configure_optimizers(self):
-        lr_g = self.hparams.lr_gen
-        lr_d = self.hparams.lr_dis
-        b1 = self.hparams.beta1
-        b2 = self.hparams.beta2
-        gen_opt = Adam(self.gen.parameters(), lr=lr_g, betas=(b1, b2))
-        dis_opt = Adam(self.dis.parameters(), lr=lr_d, betas=(b1, b2))
+        gen_opt = Adam(self.gen.parameters(), lr=self.hparams.lr_gen, betas=(self.hparams.beta1, self.hparams.beta2))
+        dis_opt = Adam(self.dis.parameters(), lr=self.hparams.lr_dis, betas=(self.hparams.beta1, self.hparams.beta2))
         return [gen_opt, dis_opt], []
 
     def plot(self, input_batches, mixed_batches, reconstr_batches, prefix, n=4):
@@ -164,178 +162,117 @@ class Net(pl.LightningModule):
                 )
                 plot = torch.cat((plot, border), 2)
 
-        name = f"{prefix}_input_mixed_reconstr_images"
+        name = f"{prefix}/input_mixed_reconstr_images"
         self.logger.experiment.add_image(name, plot)
 
-    def training_step(self, batch, batch_idx, optimizer_idx):
+    def calc_g_loss(self, x1, x2, out, prefix):
 
-        # retrieve batch and split in half, first half represents domain A other half represents domain B
-        imgs, _ = batch
-        split_idx = imgs.shape[0] // 2
-        x1 = imgs[:split_idx]
-        x2 = imgs[split_idx:]
+        ### RECONSTRUCTION LOSS ###
+        
+        # get vgg features of original and reconstructed images
+        orig_features_1 = self.vgg(x1)[1]
+        orig_features_2 = self.vgg(x2)[1]
+        recon_features_1 = self.vgg(out["r1"])[1]
+        recon_features_2 = self.vgg(out["r2"])[1]
+        
+        vgg_loss = F.mse_loss(orig_features_1, recon_features_1) + F.mse_loss(orig_features_2, recon_features_2)
+        
+        ### CYCLE CONSISTENCY LOSSES ###
+        
+        cycle_loss_a = F.mse_loss(out["x1_a"], out["m1_a"]) + F.mse_loss(out["x2_a"], out["m2_a"])
+        cycle_loss_b = F.mse_loss(out["x1_b"], out["m2_b"]) + F.mse_loss(out["x2_b"], out["m1_b"])
+        cycle_loss = cycle_loss_a + cycle_loss_b
 
-        # Train generator
-        if optimizer_idx == 0:
+        ### IDENTITY LOSSES ###
+        
+        # get identity encodings 
+        orig_id_features_1, _ = self.id_enc(x1)
+        orig_id_features_2, _ = self.id_enc(x2)
+        mixed_id_features_1, _ = self.id_enc(out["m1"])
+        mixed_id_features_2, _ = self.id_enc(out["m2"])
 
-            # forward pass to generate images
-            out = self.gen(x1, x2)
+        id_loss = F.l1_loss(orig_id_features_1, mixed_id_features_2) + F.l1_loss(orig_id_features_2, mixed_id_features_1)
 
-            # save generated images to be classified by discriminator in array
-            self.generated_imgs = torch.cat((out["m1"], out["m2"]), 0)
+        ### ADVERSARIAL LOSS ###
+        
+        adv_g_loss = self.gan_criterion(self.dis(self.mixed_imgs), True)
 
-            """
-            Explanation of the number of generated images:
-            We have a default batch size of 16, we divide this by 2, 
-            to get 8 images belonging to domain A, and 8 for domain B.
-            These will then be combined pairwise, which results in 8 mixed images 
-            for each feature as the separate feature, i.e. 16 mixed images.
-            The same applies for the reconstructed images again: 16 images
-            This results in 32 images in total.
-            Therefore, generated_imgs should have shape ([32, 3, 128, 128]) if both mixed and reconstructed images are used for the gan loss.
-            If using only mixed images, generated_imgs should have shape ([16, 3, 128, 128]) respectively.
-            """
-            # VGG features of original images
-            orig_features_1 = self.vgg(x1)
-            orig_features_2 = self.vgg(x2)
+        ### OVERALL GENERATOR LOSS ###
 
-            # VGG features of reconstructed images
-            recon_features_1 = self.vgg(out["r1"])
-            recon_features_2 = self.vgg(out["r2"])
+        loss = self.hparams.alpha * vgg_loss + self.hparams.gamma * cycle_loss + self.hparams.delta * id_loss + self.hparams.lambda_g * adv_g_loss
+        log = {f"{prefix}/vgg_loss": vgg_loss, f"{prefix}/cycle_loss": cycle_loss, f"{prefix}/id_loss": id_loss, f"{prefix}/adv_g_loss": adv_g_loss}
 
-            # extract layer 2 features
-            orig1 = orig_features_1[1]
-            orig2 = orig_features_2[1]
-            recon1 = recon_features_1[1]
-            recon2 = recon_features_2[1]
+        return loss, log
 
-            # vgg loss for reconstruction between original and reconstructed images
-            vgg_loss_a = F.mse_loss(orig1, recon1)
-            vgg_loss_b = F.mse_loss(orig2, recon2)
-
-            # cycle consistency losses
-            cycle_loss_a = F.mse_loss(out["x1_a"], out["m1_a"]) + F.mse_loss(
-                out["x2_a"], out["m2_a"]
-            )
-            cycle_loss_b = F.mse_loss(out["x1_b"], out["m2_b"]) + F.mse_loss(
-                out["x2_b"], out["m1_b"]
-            )
-
-            g_loss = self.criterionGAN(self.dis(self.generated_imgs), True)
-
-            # over all loss for generator
-            loss = (
-                self.hparams.alpha * (vgg_loss_a + vgg_loss_b)
-                + self.hparams.gamma * (cycle_loss_a + cycle_loss_b)
-                + self.hparams.lambda_g * g_loss
-            )
-
-            # plot input, mixed and reconstructed images at beginning of every epoch
-            if batch_idx == 0:
-                self.plot(
-                    (x1, x2), (out["m1"], out["m2"]), (out["r1"], out["r2"]), prefix=""
-                )
-
-            tqdm_dict = {"g_loss": g_loss}
-            output = OrderedDict(
-                {"loss": loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
-            )
-            return output
-
-        # Train discriminator
-        if optimizer_idx == 1:
-
-            real_loss = self.criterionGAN(self.dis(imgs), True)
-
-            fake_loss = self.criterionGAN(self.dis(self.generated_imgs.detach()), False)
-
-            # Take objective times 0.5 which leads to the discriminator learning at half speed as compared to the generator
-            d_loss = ((real_loss + fake_loss) / 2) * 0.5
-
-            tqdm_dict = {"d_loss": d_loss}
-            output = OrderedDict(
-                {"loss": d_loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
-            )
-            return output
-
-    def validation_step(self, batch, batch_idx):
-        return self._shared_eval(batch, batch_idx, prefix="val", plot=True)
-
-    def validation_epoch_end(self, outputs):
-        return self._shared_eval_epoch_end(outputs, "val")
-
-    def test_step(self, batch, batch_idx):
-        return self._shared_eval(batch, batch_idx, prefix="test", plot=True)
-
-    def test_epoch_end(self, outputs):
-        return self._shared_eval_epoch_end(outputs, "test")
-
-    def _shared_eval(self, batch, batch_idx, prefix="", plot=False):
-        """
-        This method is used for validation and test step, since the quality can not only be induced by the loss.
-        Instead, qualitative and quantitative methods have to be used. 
-        Therefore, the GAN loss is not inluded in the validation and test step.
-        """
-
+    def split_batch(self, batch):
         # retrieve batch and split in half
         imgs, _ = batch
         split_idx = imgs.shape[0] // 2
         x1 = imgs[:split_idx]
         x2 = imgs[split_idx:]
+        return x1, x2, imgs
 
-        # forward pass
+    def training_step(self, batch, batch_idx, optimizer_idx):
+
+        x1, x2, imgs = self.split_batch(batch)
+
+        # GENERATOR STEP
+        if optimizer_idx == 0:
+
+            out = self.gen(x1, x2)
+            self.mixed_imgs = torch.cat((out["m1"], out["m2"]), 0)
+            loss, log = self.calc_g_loss(x1, x2, out, prefix="train")
+
+            # plot at beginning of epoch
+            if batch_idx == 0:
+                self.plot((x1, x2), (out["m1"], out["m2"]), (out["r1"], out["r2"]), "train")
+
+            log.update({"train/g_loss": loss})
+            return {"loss": loss, "progress_bar": log, "log": log}
+
+        # DISCRIMINATOR STEP
+        if optimizer_idx == 1:
+
+            real_loss = self.gan_criterion(self.dis(imgs), True)
+            fake_loss = self.gan_criterion(self.dis(self.mixed_imgs.detach()), False)
+            d_loss = self.hparams.zeta * (real_loss + fake_loss) / 2
+
+            log = {"train/d_loss": d_loss}
+            return {"loss": d_loss, "progress_bar": log, "log": log}
+
+    def validation_step(self, batch, batch_idx):
+        return self._shared_eval(batch, batch_idx, prefix="val")
+
+    def validation_epoch_end(self, outputs):
+        return self._shared_eval_epoch_end(outputs, "val")
+
+    def test_step(self, batch, batch_idx):
+        return self._shared_eval(batch, batch_idx, prefix="test")
+
+    def test_epoch_end(self, outputs):
+        return self._shared_eval_epoch_end(outputs, "test")
+
+    def _shared_eval(self, batch, batch_idx, prefix):
+
+        x1, x2, _ = self.split_batch(batch)
         out = self(x1, x2)
+        loss, log = self.calc_g_loss(x1, x2, out, prefix=prefix)
 
-        # VGG features of original images
-        orig_features_1 = self.vgg(x1)
-        orig_features_2 = self.vgg(x2)
-
-        # VGG features of reconstructed images
-        recon_features_1 = self.vgg(out["r1"])
-        recon_features_2 = self.vgg(out["r2"])
-
-        # extract layer 2 features
-        orig1 = orig_features_1[1]
-        orig2 = orig_features_2[1]
-        recon1 = recon_features_1[1]
-        recon2 = recon_features_2[1]
-
-        # vgg loss for reconstruction between original and reconstructed images
-        vgg_loss_a = F.mse_loss(orig1, recon1)
-        vgg_loss_b = F.mse_loss(orig2, recon2)
-
-        # cycle consistency losses
-        cycle_loss_a = F.mse_loss(out["x1_a"], out["m1_a"]) + F.mse_loss(
-            out["x2_a"], out["m2_a"]
-        )
-        cycle_loss_b = F.mse_loss(out["x1_b"], out["m2_b"]) + F.mse_loss(
-            out["x2_b"], out["m1_b"]
-        )
-
-        # overall loss
-        loss = self.hparams.alpha * (vgg_loss_a + vgg_loss_b) + self.hparams.gamma * (
-            cycle_loss_a + cycle_loss_b
-        )
-
-        # plot input, mixed and reconstructed images at beginning of every epoch
-        if plot and batch_idx == 0:
+        # plot at beginning of epoch
+        if batch_idx == 0:
             self.plot((x1, x2), (out["m1"], out["m2"]), (out["r1"], out["r2"]), prefix)
 
-        # add underscore to prefix
-        if prefix:
-            prefix = prefix + "_"
-
-        logs = {f"{prefix}loss": loss}
-        return {f"{prefix}loss": loss, "log": logs}
+        log.update({f"{prefix}/loss": loss})
+        return {f"{prefix}_loss": loss, "log": log}
 
     def _shared_eval_epoch_end(self, outputs, prefix):
         avg_loss = torch.stack([x[f"{prefix}_loss"] for x in outputs]).mean()
-        logs = {f"avg_{prefix}_loss": avg_loss}
-        return {f"avg_{prefix}_loss": avg_loss, "log": logs}
+        log = {f"{prefix}/avg_loss": avg_loss}
+        return {f"avg_{prefix}_loss": avg_loss, "log": log}
 
 
 def main(hparams):
-    logger = loggers.TensorBoardLogger(hparams.log_dir, name=f"{hparams.gamma}-G2G")
+    logger = loggers.TensorBoardLogger(hparams.log_dir, name=hparams.log_name)
 
     model = Net(hparams)
 
@@ -355,175 +292,15 @@ def main(hparams):
         checkpoint_callback=checkpoint_callback,
         gpus=hparams.gpus,
         max_epochs=hparams.max_epochs,
+        nb_sanity_val_steps=hparams.nb_sanity_val_steps,
         distributed_backend="ddp",
     )
+
     trainer.fit(model)
     trainer.test(model)
 
 
 if __name__ == "__main__":
-    parser = ArgumentParser()
 
-    parser.add_argument(
-        "--data_root",
-        type=str,
-        default="../../../data/celebA",
-        help="Data root directory",
-    )
-    parser.add_argument(
-        "--log_dir", type=str, default="logs_gam50", help="Logging directory"
-    )
-    parser.add_argument(
-        "--num_workers",
-        type=int,
-        default=4,
-        help="num_workers > 0 turns on multi-process data loading",
-    )
-    parser.add_argument(
-        "--img_size", type=int, default=128, help="Spatial size of training images"
-    )
-    parser.add_argument(
-        "--max_epochs", type=int, default=20, help="Number of maximum training epochs"
-    )
-    parser.add_argument(
-        "--batch_size", type=int, default=16, help="Batch size during training"
-    )
-    parser.add_argument(
-        "--lr", type=float, default=0.0002, help="Learning rate for optimizer"
-    )
-    parser.add_argument(
-        "--beta1",
-        type=float,
-        default=0.9,
-        help="Beta1 hyperparameter for Adam optimizer",
-    )
-    parser.add_argument(
-        "--beta2",
-        type=float,
-        default=0.999,
-        help="Beta2 hyperparameter for Adam optimizer",
-    )
-    parser.add_argument(
-        "--gpus", type=int, default=4, help="Number of GPUs. Use 0 for CPU mode"
-    )
-
-    # generator parameters
-    parser.add_argument(
-        "--nf", type=int, default=64, help="Number of feature maps in encoders"
-    )
-    parser.add_argument(
-        "--nf_mlp",
-        type=int,
-        default=256,
-        help="Number of feature maps for MLP module, i.e. dimension of FC layers",
-    )
-    parser.add_argument(
-        "--down_class",
-        type=int,
-        default=4,
-        help="How often image is downsampled by half of its size in class encoder",
-    )
-    parser.add_argument(
-        "--down_content",
-        type=int,
-        default=3,
-        help="How often image is downsampled by half of its size in content encoder",
-    )
-    parser.add_argument(
-        "--n_mlp_blks", type=int, default=3, help="Number of FC layers in MLP module"
-    )
-    parser.add_argument(
-        "--n_res_blks", type=int, default=2, help="number of ResBlks in content encoder"
-    )
-    parser.add_argument(
-        "--latent_dim", type=int, default=1024, help="Size of latent class code"
-    )
-
-    # Loss weights
-    parser.add_argument(
-        "--alpha", type=float, default=1.0, help="Weight of vgg perceptual loss"
-    )
-    parser.add_argument(
-        "--gamma", type=float, default=10.0, help="Weight of cycle consistency losses"
-    )
-    parser.add_argument(
-        "--lambda_g", type=float, default=1.0, help="Weight of generator loss"
-    )
-
-    # hyper parameters for adversarial training
-    parser.add_argument(
-        "--lr_gen",
-        type=float,
-        default=0.0002,
-        help="Learning rate of generator network",
-    )
-    parser.add_argument(
-        "--lr_dis",
-        type=float,
-        default=0.0002,
-        help="Learning rate of discriminator network",
-    )
-    parser.add_argument(
-        "--nc", type=int, default=3, help="The number of channels in input images"
-    )
-    parser.add_argument(
-        "--nfd",
-        type=int,
-        default=64,
-        help="The number of filters in the first conv layer of the discriminator",
-    )
-    parser.add_argument(
-        "--dis_arch",
-        type=str,
-        default="basic",
-        help="The architecture's name: basic | n_layers | pixel",
-    )
-    parser.add_argument(
-        "--n_layers_D",
-        type=int,
-        default=3,
-        help="The number of conv layers in the discriminator; effective when netD=='n_layers'",
-    )
-    parser.add_argument(
-        "--norm",
-        type=str,
-        default="instance",
-        help="The type of normalization layers used in the network, either BN or IN.",
-    )
-    parser.add_argument(
-        "--init_type",
-        type=str,
-        default="normal",
-        help="The name of the initialization method for network weights",
-    )
-    parser.add_argument(
-        "--init_gain",
-        type=float,
-        default=0.02,
-        help="Scaling factor for normal, xavier and orthogonal",
-    )
-    parser.add_argument(
-        "--gan_mode",
-        type=str,
-        default="lsgan",
-        help="The type of GAN objective. It currently supports vanilla, lsgan, and wgangp.",
-    )
-    parser.add_argument(
-        "--gpu_ids",
-        type=list,
-        default=[0, 1, 2, 3],
-        help="Which GPUs the network runs on: e.g., 0,1,2",
-    )
-
-    args = parser.parse_args()
-
-    if args.batch_size < 2:
-        raise IndexError(
-            "Batch size must be at least 2 because we need 2 input images."
-        )
-    if args.batch_size % 2 != 0:
-        raise IndexError(
-            "Batch size must be divisble by 2 because we feed pairs of images to the network."
-        )
-
+    args = parse_args()
     main(args)

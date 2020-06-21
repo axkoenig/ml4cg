@@ -1,3 +1,5 @@
+import os
+
 import torch
 import torch.nn as nn
 from torchvision import models
@@ -6,6 +8,7 @@ from torchvision import models
 class Vgg16(nn.Module):
     def __init__(self):
         super(Vgg16, self).__init__()
+        os.environ["TORCH_HOME"] = "models"
         features = models.vgg16(pretrained=True).features
         self.to_relu_1_2 = nn.Sequential()
         self.to_relu_2_2 = nn.Sequential()

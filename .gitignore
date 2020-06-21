@@ -7,6 +7,10 @@ data/
 */lightning_logs/
 *.texpadtmp
 *grid_logs*
+*logs
+project/checkpoints
+project/models/*
+project/old/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
