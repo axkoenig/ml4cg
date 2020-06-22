@@ -165,6 +165,22 @@ class Net(pl.LightningModule):
         name = f"{prefix}/input_mixed_reconstr_images"
         self.logger.experiment.add_image(name, plot)
 
+    def id_loss_weight(self, n_epochs, n_epochs_increase, delta_max, delta_min = 0.0):
+        """
+        Parameters:
+            - (int) n_epochs: We keep the same weight for the first <n_epochs> epochs
+            - (int) n_epochs_increase: and successively increase the rate by 0.1 over the next <n_epochs_increase> epochs
+            - (float) delta_max: Upper threshold which delta should reach by successive increase after <n_epochs_increase> epochs
+            - (float) delta_min: Initial weight for delta kept for the first <n_epochs>
+        Returns:
+            - (float) delta: the weight for the id loss in the current epoch
+        """
+        if self.current_epoch > (n_epochs + n_epochs_increase):
+            delta = delta_max
+        else:
+            delta = delta_min + max(0, self.current_epoch - n_epochs) * (delta_max / float(n_epochs_increase))
+        return delta
+
     def calc_g_loss(self, x1, x2, out, prefix):
 
         ### RECONSTRUCTION LOSS ###
@@ -198,11 +214,11 @@ class Net(pl.LightningModule):
         adv_g_loss = self.gan_criterion(self.dis(self.mixed_imgs), True)
 
         ### OVERALL GENERATOR LOSS ###
-
-        loss = self.hparams.alpha * vgg_loss + self.hparams.gamma * cycle_loss + self.hparams.delta * id_loss + self.hparams.lambda_g * adv_g_loss
+        delta = self.id_loss_weight(self.hparams.n_epoch, self.hparams.n_epoch_decay, self.hparams.delta_max, self.hparams.delta_min)
+        loss = self.hparams.alpha * vgg_loss + self.hparams.gamma * cycle_loss + delta * id_loss + self.hparams.lambda_g * adv_g_loss
         log = {f"{prefix}/vgg_loss": vgg_loss, f"{prefix}/cycle_loss": cycle_loss, f"{prefix}/id_loss": id_loss, f"{prefix}/adv_g_loss": adv_g_loss}
 
-        return loss, log
+        return loss, log, delta
 
     def split_batch(self, batch):
         # retrieve batch and split in half
@@ -221,14 +237,14 @@ class Net(pl.LightningModule):
 
             out = self.gen(x1, x2)
             self.mixed_imgs = torch.cat((out["m1"], out["m2"]), 0)
-            loss, log = self.calc_g_loss(x1, x2, out, prefix="train")
+            loss, log, delta = self.calc_g_loss(x1, x2, out, prefix="train")
 
             # plot at beginning of epoch
             if batch_idx == 0:
                 self.plot((x1, x2), (out["m1"], out["m2"]), (out["r1"], out["r2"]), "train")
 
             log.update({"train/g_loss": loss})
-            return {"loss": loss, "progress_bar": log, "log": log}
+            return {"loss": loss, "progress_bar": log, "log": log, "delta": delta}
 
         # DISCRIMINATOR STEP
         if optimizer_idx == 1:
