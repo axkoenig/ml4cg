@@ -1,7 +1,6 @@
 __author__ = "Alexander Koenig, Li Nguyen"
 
-from collections import OrderedDict
-
+import numpy as np
 import pytorch_lightning as pl
 import torch as torch
 import torch.nn.functional as F
@@ -18,7 +17,7 @@ from torchvision import models
 from torchvision.datasets import ImageFolder
 
 from args import parse_args
-from networks import cyclegan, funit, vgg, resnet
+from networks import cyclegan, g2g, resnet, vgg
 from networks.resnet import init_id_encoder
 from networks.vgg import Vgg16
 
@@ -32,7 +31,7 @@ class Net(pl.LightningModule):
         super(Net, self).__init__()
         self.hparams = hparams
         
-        self.gen = funit.Generator(
+        self.gen = g2g.Generator(
             self.hparams.nf,
             self.hparams.nf_mlp,
             self.hparams.down_class,
@@ -60,7 +59,7 @@ class Net(pl.LightningModule):
             x1 (tensor): first input image
             x2 (tensor): second input image
         Returns:
-            generated images
+            dict: codes, mixed and reconstruced images
         """
         return self.gen(x1, x2)
 
@@ -85,6 +84,10 @@ class Net(pl.LightningModule):
         self.train_dataset = Subset(dataset, range(0, end_train_idx))
         self.val_dataset = Subset(dataset, range(end_train_idx + 1, end_val_idx))
         self.test_dataset = Subset(dataset, range(end_val_idx + 1, end_test_idx))
+
+        # define at which indices to plot during training
+        num_train_batches = len(self.train_dataset) // self.hparams.batch_size
+        self.train_plot_indices = np.linspace(0, num_train_batches, self.hparams.num_plots_per_epoch, dtype=int)
 
     def train_dataloader(self):
         return DataLoader(
@@ -195,6 +198,7 @@ class Net(pl.LightningModule):
 
         ### ADVERSARIAL LOSS ###
         
+        self.mixed_imgs = torch.cat((out["m1"], out["m2"]), 0)
         adv_g_loss = self.gan_criterion(self.dis(self.mixed_imgs), True)
 
         ### OVERALL GENERATOR LOSS ###
@@ -220,11 +224,9 @@ class Net(pl.LightningModule):
         if optimizer_idx == 0:
 
             out = self.gen(x1, x2)
-            self.mixed_imgs = torch.cat((out["m1"], out["m2"]), 0)
             loss, log = self.calc_g_loss(x1, x2, out, prefix="train")
 
-            # plot at beginning of epoch
-            if batch_idx == 0:
+            if batch_idx in self.train_plot_indices:
                 self.plot((x1, x2), (out["m1"], out["m2"]), (out["r1"], out["r2"]), "train")
 
             log.update({"train/g_loss": loss})
