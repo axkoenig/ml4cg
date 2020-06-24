@@ -7,6 +7,7 @@ import torch.nn.functional as F
 import torch.nn.init as init
 import torchvision.transforms as transforms
 import torchvision.utils as vutils
+import wandb
 from pytorch_lightning import Trainer, loggers
 from pytorch_lightning.callbacks import ModelCheckpoint
 from torch import nn
@@ -119,18 +120,19 @@ class Net(pl.LightningModule):
         dis_opt = Adam(self.dis.parameters(), lr=self.hparams.lr_dis, betas=(self.hparams.beta1, self.hparams.beta2))
         return [gen_opt, dis_opt], []
 
-    def plot(self, input_batches, mixed_batches, reconstr_batches, prefix, n=4):
+    def plot(self, input_batches, mixed_batches, reconstr_batches, prefix, caption=""):
         """Plots n triplets of ((x1, x2), (m1, m2), (r1, r2)) 
         Args:
             input_batches (tuple): Two batches of input images
             mixed_batches (tuple): Two batches of mixed images
             reconstr_batches (tuple): Two batches of reconstructed images
             prefix (str): Prefix for plot name
-            n (int, optional): How many triplets to plot. Defaults to 2.
         Raises:
             IndexError: If n exceeds batch size
         """
 
+        n = self.hparams.num_plot_triplets
+        
         if input_batches[0].shape[0] < n:
             raise IndexError(
                 "You are attempting to plot more images than your batch contains!"
@@ -166,7 +168,7 @@ class Net(pl.LightningModule):
                 plot = torch.cat((plot, border), 2)
 
         name = f"{prefix}/input_mixed_reconstr_images"
-        self.logger.experiment.add_image(name, plot)
+        wandb.log({name: [wandb.Image(plot, caption=caption)]})
 
     def calc_g_loss(self, x1, x2, out, prefix):
 
@@ -227,7 +229,8 @@ class Net(pl.LightningModule):
             loss, log = self.calc_g_loss(x1, x2, out, prefix="train")
 
             if batch_idx in self.train_plot_indices:
-                self.plot((x1, x2), (out["m1"], out["m2"]), (out["r1"], out["r2"]), "train")
+                caption = f"batch_idx: {batch_idx} | cur_epoch: {self.current_epoch}"
+                self.plot((x1, x2), (out["m1"], out["m2"]), (out["r1"], out["r2"]), "train", caption)
 
             log.update({"train/g_loss": loss})
             return {"loss": loss, "progress_bar": log, "log": log}
@@ -274,7 +277,7 @@ class Net(pl.LightningModule):
 
 
 def main(hparams):
-    logger = loggers.TensorBoardLogger(hparams.log_dir, name=hparams.log_name)
+    logger = loggers.WandbLogger(name=hparams.log_name, project="ml4cg")
 
     model = Net(hparams)
 

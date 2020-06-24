@@ -6,13 +6,13 @@ def parse_args():
 
     # logistics
     parser.add_argument("--data_root", type=str, default="../../../data/celebA", help="Data root directory")
-    parser.add_argument("--log_dir", type=str, default="logs", help="Logging directory")
     parser.add_argument("--log_name", type=str, default="test", help="Log name")
     parser.add_argument("--face_detector_pth", type=str, default="models/resnet50_ft_dims_2048.pth", help="Path of pretrained face detector")
     parser.add_argument("--num_workers", type=int, default=4, help="num_workers > 0 turns on multi-process data loading")
     parser.add_argument("--gpus", type=int, default=2, help="Number of GPUs. Use 0 for CPU mode")
     parser.add_argument("--nb_sanity_val_steps", type=int, default=0, help="Number of val sanity checks before starting training")
     parser.add_argument("--num_plots_per_epoch", type=int, default=5, help="How often to plot in one training epoch")
+    parser.add_argument("--num_plot_triplets", type=int, default=4, help="How many image triplets to plot")
 
     # preprocessing
     parser.add_argument("--img_size", type=int, default=224, help="Spatial size of training images")
