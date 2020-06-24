@@ -20,11 +20,11 @@ from torchvision.datasets import ImageFolder
 from args import parse_args
 from networks import cyclegan, funit, vgg, resnet
 from networks.resnet import init_id_encoder
-from networks.vgg import Vgg16
+# from networks.vgg import Vgg16
 
 # normalization constants
-MEAN = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
-STD = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
+MEAN = torch.tensor([131.0912, 103.8827, 91.4953], dtype=torch.float32)
+STD = torch.tensor([1, 1, 1], dtype=torch.float32)
 
 
 class Net(pl.LightningModule):
@@ -49,7 +49,7 @@ class Net(pl.LightningModule):
             self.hparams.init_type,
             self.hparams.init_gain,
         )
-        self.vgg = Vgg16()
+        # self.vgg = Vgg16()
         self.id_enc = init_id_encoder(self.hparams.face_detector_pth)
         self.gan_criterion = cyclegan.GANLoss(self.hparams.gan_mode)
         self.mixed_imgs = None
@@ -184,15 +184,8 @@ class Net(pl.LightningModule):
     def calc_g_loss(self, x1, x2, out, prefix):
 
         ### RECONSTRUCTION LOSS ###
-        
-        # get vgg features of original and reconstructed images
-        orig_features_1 = self.vgg(x1)[1]
-        orig_features_2 = self.vgg(x2)[1]
-        recon_features_1 = self.vgg(out["r1"])[1]
-        recon_features_2 = self.vgg(out["r2"])[1]
-        
-        vgg_loss = F.mse_loss(orig_features_1, recon_features_1) + F.mse_loss(orig_features_2, recon_features_2)
-        
+        reconstr_loss = F.l1_loss(x1, out["r1"]) + F.l1_loss(x2, out["r2"])        
+
         ### CYCLE CONSISTENCY LOSSES ###
         
         cycle_loss_a = F.mse_loss(out["x1_a"], out["m1_a"]) + F.mse_loss(out["x2_a"], out["m2_a"])
@@ -214,11 +207,11 @@ class Net(pl.LightningModule):
         adv_g_loss = self.gan_criterion(self.dis(self.mixed_imgs), True)
 
         ### OVERALL GENERATOR LOSS ###
-        delta = self.id_loss_weight(self.hparams.n_epoch, self.hparams.n_epoch_decay, self.hparams.delta_max, self.hparams.delta_min)
-        loss = self.hparams.alpha * vgg_loss + self.hparams.gamma * cycle_loss + delta * id_loss + self.hparams.lambda_g * adv_g_loss
-        log = {f"{prefix}/vgg_loss": vgg_loss, f"{prefix}/cycle_loss": cycle_loss, f"{prefix}/id_loss": id_loss, f"{prefix}/adv_g_loss": adv_g_loss}
+        delta = self.id_loss_weight(self.hparams.n_epochs, self.hparams.n_epochs_increase, self.hparams.delta_max, self.hparams.delta_min)
+        loss = self.hparams.alpha * reconstr_loss + self.hparams.gamma * cycle_loss + delta * id_loss + self.hparams.lambda_g * adv_g_loss
+        log = {f"{prefix}/vgg_loss": reconstr_loss, f"{prefix}/cycle_loss": cycle_loss, f"{prefix}/id_loss": id_loss, f"{prefix}/adv_g_loss": adv_g_loss, f"{prefix}/delta": delta}
 
-        return loss, log, delta
+        return loss, log
 
     def split_batch(self, batch):
         # retrieve batch and split in half
@@ -237,14 +230,14 @@ class Net(pl.LightningModule):
 
             out = self.gen(x1, x2)
             self.mixed_imgs = torch.cat((out["m1"], out["m2"]), 0)
-            loss, log, delta = self.calc_g_loss(x1, x2, out, prefix="train")
+            loss, log = self.calc_g_loss(x1, x2, out, prefix="train")
 
             # plot at beginning of epoch
             if batch_idx == 0:
                 self.plot((x1, x2), (out["m1"], out["m2"]), (out["r1"], out["r2"]), "train")
 
             log.update({"train/g_loss": loss})
-            return {"loss": loss, "progress_bar": log, "log": log, "delta": delta}
+            return {"loss": loss, "progress_bar": log, "log": log}
 
         # DISCRIMINATOR STEP
         if optimizer_idx == 1:
