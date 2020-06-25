@@ -52,10 +52,10 @@ def parse_args():
     parser.add_argument("--zeta", type=float, default=0.2, help="Weight of discriminator loss")
     
     # Parameters for successive increase of ID loss weight
-    parser.add_argument("--n_epochs", type=int, default=3, help="Number of epochs in which we keep the same weight for the identity loss")
-    parser.add_argument("--n_epochs_increase", type=int, default=5, help="Number of epochs over which we successively increase by 0.1 starting from n_epochs")
-    parser.add_argument("--delta_min", type=float, default=0.0, help="Initial weight for delta kept for the first <n_epochs>")
-    parser.add_argument("--delta_max", type=float, default=1.0, help="Maximum weight for delta")
+    parser.add_argument("--n_epochs", type=int, default=3, help="Number of epochs in which delta=delta_min")
+    parser.add_argument("--n_epochs_increase", type=int, default=5, help="Number of epochs over which we linearly increase delta from delta_min to delta_max")
+    parser.add_argument("--delta_min", type=float, default=0.0, help="Initial value for delta kept for the first <n_epochs>")
+    parser.add_argument("--delta_max", type=float, default=1.0, help="Maximum value for delta")
 
     args = parser.parse_args()
 

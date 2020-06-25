@@ -184,7 +184,7 @@ class Net(pl.LightningModule):
     def calc_g_loss(self, x1, x2, out, prefix):
 
         ### RECONSTRUCTION LOSS ###
-        reconstr_loss = F.l1_loss(x1, out["r1"]) + F.l1_loss(x2, out["r2"])        
+        reconstr_loss = F.mse_loss(x1, out["r1"]) + F.mse_loss(x2, out["r2"])        
 
         ### CYCLE CONSISTENCY LOSSES ###
         
@@ -193,6 +193,7 @@ class Net(pl.LightningModule):
         cycle_loss = cycle_loss_a + cycle_loss_b
 
         ### IDENTITY LOSSES ###
+        delta = self.id_loss_weight(self.hparams.n_epochs, self.hparams.n_epochs_increase, self.hparams.delta_max, self.hparams.delta_min)
         
         # get identity encodings 
         orig_id_features_1, _ = self.id_enc(x1)
@@ -207,7 +208,6 @@ class Net(pl.LightningModule):
         adv_g_loss = self.gan_criterion(self.dis(self.mixed_imgs), True)
 
         ### OVERALL GENERATOR LOSS ###
-        delta = self.id_loss_weight(self.hparams.n_epochs, self.hparams.n_epochs_increase, self.hparams.delta_max, self.hparams.delta_min)
         loss = self.hparams.alpha * reconstr_loss + self.hparams.gamma * cycle_loss + delta * id_loss + self.hparams.lambda_g * adv_g_loss
         log = {f"{prefix}/vgg_loss": reconstr_loss, f"{prefix}/cycle_loss": cycle_loss, f"{prefix}/id_loss": id_loss, f"{prefix}/adv_g_loss": adv_g_loss, f"{prefix}/delta": delta}
 
