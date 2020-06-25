@@ -11,6 +11,7 @@ data/
 project/checkpoints
 project/models/*
 project/old/*
+project/wandb
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
