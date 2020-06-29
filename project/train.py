@@ -64,8 +64,7 @@ class Net(pl.LightningModule):
         """
         return self.gen(x1, x2)
 
-    def prepare_data(self):
-
+    def setup(self, mode):
         transform = transforms.Compose(
             [
                 transforms.Resize(self.hparams.img_size),
@@ -306,7 +305,7 @@ def main(hparams):
         checkpoint_callback=checkpoint_callback,
         gpus=hparams.gpus,
         max_epochs=hparams.max_epochs,
-        nb_sanity_val_steps=hparams.nb_sanity_val_steps,
+        num_sanity_val_steps=hparams.num_sanity_val_steps,
         distributed_backend="ddp",
     )
 
