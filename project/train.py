@@ -1,5 +1,7 @@
 __author__ = "Alexander Koenig, Li Nguyen"
 
+import gc
+
 import numpy as np
 import pytorch_lightning as pl
 import torch as torch
@@ -131,10 +133,10 @@ class Net(pl.LightningModule):
         """
 
         n = self.hparams.num_plot_triplets
-        
-        if input_batches[0].shape[0] < n:
+        m = input_batches[0].shape[0]
+        if m < n:
             raise IndexError(
-                "You are attempting to plot more images than your batch contains!"
+                f"You are attempting to plot {n} images but your batch only contains {m}!"
             )
 
         # denormalize images
@@ -167,7 +169,7 @@ class Net(pl.LightningModule):
                 plot = torch.cat((plot, border), 2)
 
         name = f"{prefix}/input_mixed_reconstr_images"
-        wandb.log({name: [wandb.Image(plot, caption=caption)]})
+        self.logger.experiment.log({name: [wandb.Image(plot, caption=caption)]})
 
     def id_loss_weight(self, n_epochs, n_epochs_increase, delta_max, delta_min = 0.0):
         """
@@ -285,6 +287,10 @@ class Net(pl.LightningModule):
 
 
 def main(hparams):
+    # clean up 
+    gc.collect()
+    torch.cuda.empty_cache()
+    
     logger = loggers.WandbLogger(name=hparams.log_name, project="ml4cg")
 
     model = Net(hparams)
