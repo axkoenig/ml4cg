@@ -11,7 +11,7 @@ def parse_args():
     parser.add_argument("--num_workers", type=int, default=4, help="num_workers > 0 turns on multi-process data loading")
     parser.add_argument("--gpus", type=int, default=2, help="Number of GPUs. Use 0 for CPU mode")
     parser.add_argument("--num_sanity_val_steps", type=int, default=0, help="Number of val sanity checks before starting training")
-    parser.add_argument("--num_plots_per_epoch", type=int, default=5, help="How often to plot in one training epoch")
+    parser.add_argument("--num_plots_per_epoch", type=int, default=10, help="How often to plot in one training epoch")
     parser.add_argument("--num_plot_triplets", type=int, default=4, help="How many image triplets to plot")
 
     # Preprocessing
@@ -53,7 +53,7 @@ def parse_args():
     parser.add_argument("--zeta", type=float, default=0.2, help="Weight of discriminator loss")
     
     # Parameters for successive increase of ID loss weight
-    parser.add_argument("--n_epochs", type=int, default=3, help="Number of epochs in which delta=delta_min")
+    parser.add_argument("--n_epochs", type=int, default=1, help="Number of epochs in which delta=delta_min")
     parser.add_argument("--n_epochs_increase", type=int, default=5, help="Number of epochs over which we linearly increase delta from delta_min to delta_max")
     parser.add_argument("--delta_min", type=float, default=0.0, help="Initial value for delta kept for the first <n_epochs>")
     parser.add_argument("--delta_max", type=float, default=1.0, help="Maximum value for delta")
