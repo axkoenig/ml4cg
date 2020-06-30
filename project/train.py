@@ -22,12 +22,14 @@ from torchvision.datasets import ImageFolder
 from args import parse_args
 from networks import cyclegan, g2g, resnet, vgg
 from networks.resnet import init_id_encoder
-# from networks.vgg import Vgg16
+from networks.vgg import Vgg16
 
 # normalization constants
-MEAN = torch.tensor([131.0912, 103.8827, 91.4953], dtype=torch.float32)
-STD = torch.tensor([1, 1, 1], dtype=torch.float32)
+MEAN = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
+STD = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
 
+MEAN_RESNET = torch.tensor([131.0912, 103.8827, 91.4953], dtype=torch.float32)
+STD_RESNET = torch.tensor([1, 1, 1], dtype=torch.float32)
 
 class Net(pl.LightningModule):
     def __init__(self, hparams):
@@ -51,10 +53,13 @@ class Net(pl.LightningModule):
             self.hparams.init_type,
             self.hparams.init_gain,
         )
-        # self.vgg = Vgg16()
+        self.vgg = Vgg16()
         self.id_enc = init_id_encoder(self.hparams.face_detector_pth)
         self.gan_criterion = cyclegan.GANLoss(self.hparams.gan_mode)
         self.mixed_imgs = None
+        
+        # pretrained resnet requires different normalization
+        self.resnet_norm = transforms.Normalize(MEAN_RESNET.tolist(), STD_RESNET.tolist())
 
     def forward(self, x1, x2):
         """Forward pass of network
@@ -136,7 +141,7 @@ class Net(pl.LightningModule):
         m = input_batches[0].shape[0]
         if m < n:
             raise IndexError(
-                f"You are attempting to plot {n} images but your batch only contains {m}!"
+                f"You are attempting to plot too many images. For --num_plot_triplets={n} your batch size must be at least {2*n}!"
             )
 
         # denormalize images
@@ -187,10 +192,22 @@ class Net(pl.LightningModule):
             delta = delta_min + max(0, self.current_epoch - n_epochs) * (delta_max / float(n_epochs_increase))
         return delta
 
+    def norm_resnet(self, imgs):
+        imgs = imgs.clone()
+        for i in range(imgs.shape[0]):
+            imgs[i] = self.resnet_norm(imgs[i])
+        return imgs
+
     def calc_g_loss(self, x1, x2, out, prefix):
 
         ### RECONSTRUCTION LOSS ###
-        reconstr_loss = F.mse_loss(x1, out["r1"]) + F.mse_loss(x2, out["r2"])        
+        # get vgg features of original and reconstructed images
+        orig_features_1 = self.vgg(x1)[1]
+        orig_features_2 = self.vgg(x2)[1]
+        recon_features_1 = self.vgg(out["r1"])[1]
+        recon_features_2 = self.vgg(out["r2"])[1]
+        
+        vgg_loss = F.mse_loss(orig_features_1, recon_features_1) + F.mse_loss(orig_features_2, recon_features_2)
 
         ### CYCLE CONSISTENCY LOSSES ###
         
@@ -199,14 +216,14 @@ class Net(pl.LightningModule):
         cycle_loss = cycle_loss_a + cycle_loss_b
 
         ### IDENTITY LOSSES ###
-        delta = self.id_loss_weight(self.hparams.n_epochs, self.hparams.n_epochs_increase, self.hparams.delta_max, self.hparams.delta_min)
         
         # get identity encodings 
-        orig_id_features_1, _ = self.id_enc(x1)
-        orig_id_features_2, _ = self.id_enc(x2)
-        mixed_id_features_1, _ = self.id_enc(out["m1"])
-        mixed_id_features_2, _ = self.id_enc(out["m2"])
-
+        orig_id_features_1, _ = self.id_enc(self.norm_resnet(x1))
+        orig_id_features_2, _ = self.id_enc(self.norm_resnet(x2))
+        mixed_id_features_1, _ = self.id_enc(self.norm_resnet(out["m1"]))
+        mixed_id_features_2, _ = self.id_enc(self.norm_resnet(out["m2"]))
+        
+        delta = self.id_loss_weight(self.hparams.n_epochs, self.hparams.n_epochs_increase, self.hparams.delta_max, self.hparams.delta_min)
         id_loss = F.l1_loss(orig_id_features_1, mixed_id_features_2) + F.l1_loss(orig_id_features_2, mixed_id_features_1)
 
         ### ADVERSARIAL LOSS ###
@@ -215,8 +232,8 @@ class Net(pl.LightningModule):
         adv_g_loss = self.gan_criterion(self.dis(self.mixed_imgs), True)
 
         ### OVERALL GENERATOR LOSS ###
-        loss = self.hparams.alpha * reconstr_loss + self.hparams.gamma * cycle_loss + delta * id_loss + self.hparams.lambda_g * adv_g_loss
-        log = {f"{prefix}/vgg_loss": reconstr_loss, f"{prefix}/cycle_loss": cycle_loss, f"{prefix}/id_loss": id_loss, f"{prefix}/adv_g_loss": adv_g_loss, f"{prefix}/delta": delta}
+        loss = self.hparams.alpha * vgg_loss + self.hparams.gamma * cycle_loss + delta * id_loss + self.hparams.lambda_g * adv_g_loss
+        log = {f"{prefix}/vgg_loss": vgg_loss, f"{prefix}/cycle_loss": cycle_loss, f"{prefix}/id_loss": id_loss, f"{prefix}/adv_g_loss": adv_g_loss, f"{prefix}/delta": delta}
 
         return loss, log
 
