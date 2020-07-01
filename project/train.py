@@ -176,20 +176,20 @@ class Net(pl.LightningModule):
         name = f"{prefix}/input_mixed_reconstr_images"
         self.logger.experiment.log({name: [wandb.Image(plot, caption=caption)]})
 
-    def id_loss_weight(self, n_epochs, n_epochs_increase, delta_max, delta_min = 0.0):
+    def id_loss_weight(self, n_epochs_delta_min, n_epochs_delta_rise, delta_max, delta_min = 0.0):
         """
         Parameters:
-            - (int) n_epochs: We keep the same weight for the first <n_epochs> epochs
-            - (int) n_epochs_increase: and successively increase the rate by 0.1 over the next <n_epochs_increase> epochs
-            - (float) delta_max: Upper threshold which delta should reach by successive increase after <n_epochs_increase> epochs
-            - (float) delta_min: Initial weight for delta kept for the first <n_epochs>
+            - (int) n_epochs_delta_min: We keep the same weight for the first <n_epochs_delta_min> epochs
+            - (int) n_epochs_delta_rise: and successively increase the rate by 0.1 over the next <n_epochs_delta_rise> epochs
+            - (float) delta_max: Upper threshold which delta should reach by successive increase after <n_epochs_delta_rise> epochs
+            - (float) delta_min: Initial weight for delta kept for the first <n_epochs_delta_min>
         Returns:
             - (float) delta: the weight for the id loss in the current epoch
         """
-        if self.current_epoch > (n_epochs + n_epochs_increase):
+        if self.current_epoch > (n_epochs_delta_min + n_epochs_delta_rise):
             delta = delta_max
         else:
-            delta = delta_min + max(0, self.current_epoch - n_epochs) * (delta_max / float(n_epochs_increase))
+            delta = delta_min + max(0, self.current_epoch - n_epochs_delta_min) * (delta_max / float(n_epochs_delta_rise))
         return delta
 
     def norm_resnet(self, imgs):
@@ -207,13 +207,13 @@ class Net(pl.LightningModule):
         recon_features_1 = self.vgg(out["r1"])[1]
         recon_features_2 = self.vgg(out["r2"])[1]
         
-        vgg_loss = F.mse_loss(orig_features_1, recon_features_1) + F.mse_loss(orig_features_2, recon_features_2)
+        vgg_loss = self.hparams.alpha * (F.l1_loss(orig_features_1, recon_features_1) + F.l1_loss(orig_features_2, recon_features_2))
 
         ### CYCLE CONSISTENCY LOSSES ###
         
         cycle_loss_a = F.mse_loss(out["x1_a"], out["m1_a"]) + F.mse_loss(out["x2_a"], out["m2_a"])
         cycle_loss_b = F.mse_loss(out["x1_b"], out["m2_b"]) + F.mse_loss(out["x2_b"], out["m1_b"])
-        cycle_loss = cycle_loss_a + cycle_loss_b
+        cycle_loss = self.hparams.gamma * (cycle_loss_a + cycle_loss_b)
 
         ### IDENTITY LOSSES ###
         
@@ -223,16 +223,16 @@ class Net(pl.LightningModule):
         mixed_id_features_1, _ = self.id_enc(self.norm_resnet(out["m1"]))
         mixed_id_features_2, _ = self.id_enc(self.norm_resnet(out["m2"]))
         
-        delta = self.id_loss_weight(self.hparams.n_epochs, self.hparams.n_epochs_increase, self.hparams.delta_max, self.hparams.delta_min)
-        id_loss = F.l1_loss(orig_id_features_1, mixed_id_features_2) + F.l1_loss(orig_id_features_2, mixed_id_features_1)
+        delta = self.id_loss_weight(self.hparams.n_epochs_delta_min, self.hparams.n_epochs_delta_rise, self.hparams.delta_max, self.hparams.delta_min)
+        id_loss = delta * (F.l1_loss(orig_id_features_1, mixed_id_features_2) + F.l1_loss(orig_id_features_2, mixed_id_features_1))
 
         ### ADVERSARIAL LOSS ###
         
         self.mixed_imgs = torch.cat((out["m1"], out["m2"]), 0)
-        adv_g_loss = self.gan_criterion(self.dis(self.mixed_imgs), True)
+        adv_g_loss = self.hparams.lambda_g * self.gan_criterion(self.dis(self.mixed_imgs), True)
 
         ### OVERALL GENERATOR LOSS ###
-        loss = self.hparams.alpha * vgg_loss + self.hparams.gamma * cycle_loss + delta * id_loss + self.hparams.lambda_g * adv_g_loss
+        loss = vgg_loss + cycle_loss + id_loss + adv_g_loss
         log = {f"{prefix}/vgg_loss": vgg_loss, f"{prefix}/cycle_loss": cycle_loss, f"{prefix}/id_loss": id_loss, f"{prefix}/adv_g_loss": adv_g_loss, f"{prefix}/delta": delta}
 
         return loss, log
