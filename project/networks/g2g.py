@@ -15,7 +15,6 @@ class Generator(nn.Module):
         Params:
             - nf: number of feature maps of encoder and decoder
             - nf_mlp: number of feature maps for MLP module, i.e. dimension of FC layers (256)
-            - down_class: how often image is downsampled by half of its size in class encoder
             - down_content: how often image is downsampled by half of its size in content encoder
             - n_mlp_blks: Number of FC layers in MLP module, in this case 3
             - n_res_blks: number of ResBlks in content encoder, i.e. 2

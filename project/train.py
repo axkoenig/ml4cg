@@ -239,7 +239,6 @@ class Net(pl.LightningModule):
 
         return loss, log
 
-
     def split_batch(self, batch):
         # retrieve batch and split in half
         imgs, _ = batch
