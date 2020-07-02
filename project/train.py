@@ -312,7 +312,7 @@ def main(hparams):
         checkpoint_callback=checkpoint_callback,
         gpus=hparams.gpus,
         max_epochs=hparams.max_epochs,
-        nb_sanity_val_steps=hparams.nb_sanity_val_steps,
+        num_sanity_val_steps=hparams.num_sanity_val_steps,
         distributed_backend="ddp",
     )
 
