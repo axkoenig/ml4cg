@@ -57,9 +57,6 @@ class Net(pl.LightningModule):
         self.id_enc = init_id_encoder(self.hparams.face_detector_pth)
         self.gan_criterion = cyclegan.GANLoss(self.hparams.gan_mode)
         self.mixed_imgs = None
-        
-        # pretrained resnet requires different normalization
-        self.resnet_norm = transforms.Normalize(MEAN_RESNET.tolist(), STD_RESNET.tolist())
 
         # pretrained VGG requires different normalization
         self.vgg_norm = transforms.Normalize(MEAN_VGG.tolist(), STD_VGG.tolist())        
