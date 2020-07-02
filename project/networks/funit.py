@@ -364,7 +364,7 @@ class Decoder(nn.Module):
 class MLP(nn.Module):
     """
     Params:
-        - in_dim: input dimension into MLP module is dimension of class code, i.e. 1 x 1 x 1024
+        - in_dim: input dimension into MLP module is dimension of class code, i.e. 1 x 1 x 2048
         - out_dim: output dimension of MLP module, i.e. 256
         - dim: dimension of FC layers, i.e. 256
         - n_blk: how many FC layers

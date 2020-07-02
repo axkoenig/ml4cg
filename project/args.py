@@ -36,7 +36,7 @@ def parse_args():
     parser.add_argument("--down_content", type=int, default=3, help="How often image is downsampled by half of its size in content encoder")
     parser.add_argument("--n_mlp_blks", type=int, default=3, help="Number of FC layers in MLP module")
     parser.add_argument("--n_res_blks", type=int, default=2, help="number of ResBlks in content encoder")
-    parser.add_argument("--latent_dim", type=int, default=1024, help="Size of latent class code")
+    parser.add_argument("--latent_dim", type=int, default=2048, help="Size of latent class code")
 
     # discriminator 
     parser.add_argument("--nfd", type=int, default=64, help="The number of filters in the first conv layer of the discriminator")

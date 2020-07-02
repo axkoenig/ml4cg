@@ -1,6 +1,7 @@
 from torch import nn
 
 from .funit import ClassModelEncoder, ContentEncoder, Decoder, MLP, get_num_adain_params, assign_adain_params
+from .resnet import init_id_encoder
 
 """
 This file defines the G2G architecture
@@ -8,7 +9,7 @@ Some of the below code comes from https://github.com/NVlabs/FUNIT/blob/master/ne
 """
 
 class Generator(nn.Module):
-    def __init__(self, nf, nf_mlp, down_class, down_content, n_mlp_blks, n_res_blks, latent_dim):
+    def __init__(self, nf, nf_mlp, down_content, n_mlp_blks, n_res_blks, latent_dim, face_detector_pth):
         super(Generator, self).__init__()
         """
         Params:
@@ -18,12 +19,10 @@ class Generator(nn.Module):
             - down_content: how often image is downsampled by half of its size in content encoder
             - n_mlp_blks: Number of FC layers in MLP module, in this case 3
             - n_res_blks: number of ResBlks in content encoder, i.e. 2
-            - latent_dim: latent dimension of class code, i.e. 1024
+            - latent_dim: latent dimension of class code, i.e. 1x1x2048
         """
 
-        self.enc_class_model = ClassModelEncoder(
-            down_class, 3, nf, latent_dim, norm="none", activ="relu", pad_type="reflect"
-        )
+        self.enc_class_model = init_id_encoder(face_detector_pth)
 
         self.enc_content = ContentEncoder(
             down_content, n_res_blks, 3, nf, "in", activ="relu", pad_type="reflect"

@@ -1,5 +1,6 @@
 __author__ = "Alexander Koenig, Li Nguyen"
 
+import gc
 import numpy as np
 import pytorch_lightning as pl
 import torch as torch
@@ -23,9 +24,11 @@ from networks.resnet import init_id_encoder
 from networks.vgg import Vgg16
 
 # normalization constants
-MEAN = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
-STD = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
+MEAN_VGG = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
+STD_VGG = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
 
+MEAN = torch.tensor([131.0912, 103.8827, 91.4953], dtype=torch.float32)
+STD = torch.tensor([1, 1, 1], dtype=torch.float32)
 
 class Net(pl.LightningModule):
     def __init__(self, hparams):
@@ -35,11 +38,11 @@ class Net(pl.LightningModule):
         self.gen = g2g.Generator(
             self.hparams.nf,
             self.hparams.nf_mlp,
-            self.hparams.down_class,
             self.hparams.down_content,
             self.hparams.n_mlp_blks,
             self.hparams.n_res_blks,
-            self.hparams.latent_dim)
+            self.hparams.latent_dim,
+            self.hparams.face_detector_pth)
         self.dis = cyclegan.define_D(
             self.hparams.nc,
             self.hparams.nfd,
@@ -54,6 +57,9 @@ class Net(pl.LightningModule):
         self.gan_criterion = cyclegan.GANLoss(self.hparams.gan_mode)
         self.mixed_imgs = None
 
+        # pretrained VGG requires different normalization
+        self.vgg_norm = transforms.Normalize(MEAN_VGG.tolist(), STD_VGG.tolist())        
+
     def forward(self, x1, x2):
         """Forward pass of network
         Args:
@@ -64,8 +70,7 @@ class Net(pl.LightningModule):
         """
         return self.gen(x1, x2)
 
-    def prepare_data(self):
-
+    def setup(self, mode):
         transform = transforms.Compose(
             [
                 transforms.Resize(self.hparams.img_size),
@@ -132,10 +137,10 @@ class Net(pl.LightningModule):
         """
 
         n = self.hparams.num_plot_triplets
-        
-        if input_batches[0].shape[0] < n:
+        m = input_batches[0].shape[0]
+        if m < n:
             raise IndexError(
-                "You are attempting to plot more images than your batch contains!"
+                f"You are attempting to plot too many images. For --num_plot_triplets={n} your batch size must be at least {2*n}!"
             )
 
         # denormalize images
@@ -168,25 +173,30 @@ class Net(pl.LightningModule):
                 plot = torch.cat((plot, border), 2)
 
         name = f"{prefix}/input_mixed_reconstr_images"
-        wandb.log({name: [wandb.Image(plot, caption=caption)]})
+        self.logger.experiment.log({name: [wandb.Image(plot, caption=caption)]})
+
+    def norm_vgg(self, imgs):
+        imgs = imgs.clone()
+        for i in range(imgs.shape[0]):
+            imgs[i] = self.vgg_norm(imgs[i])
+        return imgs
 
     def calc_g_loss(self, x1, x2, out, prefix):
 
         ### RECONSTRUCTION LOSS ###
-        
         # get vgg features of original and reconstructed images
-        orig_features_1 = self.vgg(x1)[1]
-        orig_features_2 = self.vgg(x2)[1]
-        recon_features_1 = self.vgg(out["r1"])[1]
-        recon_features_2 = self.vgg(out["r2"])[1]
+        orig_features_1 = self.vgg(self.norm_vgg(x1))[1]
+        orig_features_2 = self.vgg(self.norm_vgg(x2))[1]
+        recon_features_1 = self.vgg(self.norm_vgg(out["r1"]))[1]
+        recon_features_2 = self.vgg(self.norm_vgg(out["r2"]))[1]
         
-        vgg_loss = F.mse_loss(orig_features_1, recon_features_1) + F.mse_loss(orig_features_2, recon_features_2)
-        
+        vgg_loss = self.hparams.alpha * (F.l1_loss(orig_features_1, recon_features_1) + F.l1_loss(orig_features_2, recon_features_2))
+
         ### CYCLE CONSISTENCY LOSSES ###
         
         cycle_loss_a = F.mse_loss(out["x1_a"], out["m1_a"]) + F.mse_loss(out["x2_a"], out["m2_a"])
         cycle_loss_b = F.mse_loss(out["x1_b"], out["m2_b"]) + F.mse_loss(out["x2_b"], out["m1_b"])
-        cycle_loss = cycle_loss_a + cycle_loss_b
+        cycle_loss = self.hparams.gamma * (cycle_loss_a + cycle_loss_b)
 
         ### IDENTITY LOSSES ###
         
@@ -195,20 +205,21 @@ class Net(pl.LightningModule):
         orig_id_features_2, _ = self.id_enc(x2)
         mixed_id_features_1, _ = self.id_enc(out["m1"])
         mixed_id_features_2, _ = self.id_enc(out["m2"])
-
-        id_loss = F.l1_loss(orig_id_features_1, mixed_id_features_2) + F.l1_loss(orig_id_features_2, mixed_id_features_1)
+        
+        delta = self.id_loss_weight(self.hparams.n_epochs_delta_min, self.hparams.n_epochs_delta_rise, self.hparams.delta_max, self.hparams.delta_min)
+        id_loss = delta * (F.l1_loss(orig_id_features_1, mixed_id_features_2) + F.l1_loss(orig_id_features_2, mixed_id_features_1))
 
         ### ADVERSARIAL LOSS ###
         
         self.mixed_imgs = torch.cat((out["m1"], out["m2"]), 0)
-        adv_g_loss = self.gan_criterion(self.dis(self.mixed_imgs), True)
+        adv_g_loss = self.hparams.lambda_g * self.gan_criterion(self.dis(self.mixed_imgs), True)
 
         ### OVERALL GENERATOR LOSS ###
-
-        loss = self.hparams.alpha * vgg_loss + self.hparams.gamma * cycle_loss + self.hparams.delta * id_loss + self.hparams.lambda_g * adv_g_loss
-        log = {f"{prefix}/vgg_loss": vgg_loss, f"{prefix}/cycle_loss": cycle_loss, f"{prefix}/id_loss": id_loss, f"{prefix}/adv_g_loss": adv_g_loss}
+        loss = vgg_loss + cycle_loss + id_loss + adv_g_loss
+        log = {f"{prefix}/vgg_loss": vgg_loss, f"{prefix}/cycle_loss": cycle_loss, f"{prefix}/id_loss": id_loss, f"{prefix}/adv_g_loss": adv_g_loss, f"{prefix}/delta": delta}
 
         return loss, log
+
 
     def split_batch(self, batch):
         # retrieve batch and split in half
@@ -277,6 +288,10 @@ class Net(pl.LightningModule):
 
 
 def main(hparams):
+    # clean up 
+    gc.collect()
+    torch.cuda.empty_cache()
+
     logger = loggers.WandbLogger(name=hparams.log_name, project="ml4cg")
 
     model = Net(hparams)
