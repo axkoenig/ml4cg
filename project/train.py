@@ -1,6 +1,7 @@
 __author__ = "Alexander Koenig, Li Nguyen"
 
 import gc
+
 import numpy as np
 import pytorch_lightning as pl
 import torch as torch
@@ -56,6 +57,9 @@ class Net(pl.LightningModule):
         self.id_enc = init_id_encoder(self.hparams.face_detector_pth)
         self.gan_criterion = cyclegan.GANLoss(self.hparams.gan_mode)
         self.mixed_imgs = None
+        
+        # pretrained resnet requires different normalization
+        self.resnet_norm = transforms.Normalize(MEAN_RESNET.tolist(), STD_RESNET.tolist())
 
         # pretrained VGG requires different normalization
         self.vgg_norm = transforms.Normalize(MEAN_VGG.tolist(), STD_VGG.tolist())        
@@ -175,6 +179,22 @@ class Net(pl.LightningModule):
         name = f"{prefix}/input_mixed_reconstr_images"
         self.logger.experiment.log({name: [wandb.Image(plot, caption=caption)]})
 
+    def id_loss_weight(self, n_epochs_delta_min, n_epochs_delta_rise, delta_max, delta_min = 0.0):
+        """
+        Parameters:
+            - (int) n_epochs_delta_min: We keep the same weight for the first <n_epochs_delta_min> epochs
+            - (int) n_epochs_delta_rise: and successively increase the rate by 0.1 over the next <n_epochs_delta_rise> epochs
+            - (float) delta_max: Upper threshold which delta should reach by successive increase after <n_epochs_delta_rise> epochs
+            - (float) delta_min: Initial weight for delta kept for the first <n_epochs_delta_min>
+        Returns:
+            - (float) delta: the weight for the id loss in the current epoch
+        """
+        if self.current_epoch > (n_epochs_delta_min + n_epochs_delta_rise):
+            delta = delta_max
+        else:
+            delta = delta_min + max(0, self.current_epoch - n_epochs_delta_min) * (delta_max / float(n_epochs_delta_rise))
+        return delta
+
     def norm_vgg(self, imgs):
         imgs = imgs.clone()
         for i in range(imgs.shape[0]):
@@ -189,6 +209,7 @@ class Net(pl.LightningModule):
         orig_features_2 = self.vgg(self.norm_vgg(x2))[1]
         recon_features_1 = self.vgg(self.norm_vgg(out["r1"]))[1]
         recon_features_2 = self.vgg(self.norm_vgg(out["r2"]))[1]
+
         
         vgg_loss = self.hparams.alpha * (F.l1_loss(orig_features_1, recon_features_1) + F.l1_loss(orig_features_2, recon_features_2))
 
@@ -205,6 +226,7 @@ class Net(pl.LightningModule):
         orig_id_features_2, _ = self.id_enc(x2)
         mixed_id_features_1, _ = self.id_enc(out["m1"])
         mixed_id_features_2, _ = self.id_enc(out["m2"])
+
         
         delta = self.id_loss_weight(self.hparams.n_epochs_delta_min, self.hparams.n_epochs_delta_rise, self.hparams.delta_max, self.hparams.delta_min)
         id_loss = delta * (F.l1_loss(orig_id_features_1, mixed_id_features_2) + F.l1_loss(orig_id_features_2, mixed_id_features_1))
@@ -291,7 +313,7 @@ def main(hparams):
     # clean up 
     gc.collect()
     torch.cuda.empty_cache()
-
+    
     logger = loggers.WandbLogger(name=hparams.log_name, project="ml4cg")
 
     model = Net(hparams)

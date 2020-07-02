@@ -1,6 +1,7 @@
 # Custom
 *.vscode
 tutorials/data/
+archive/old_logs
 tutorials/cifar_net.pth
 data/
 */logs/
