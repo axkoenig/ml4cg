@@ -92,7 +92,7 @@ class Generator(nn.Module):
     def encode(self, x):
         # feed original images x1 and x2 into class and content encoder
         content_code = self.enc_content(x)
-        class_code = self.enc_class_model(x)
+        _, class_code = self.enc_class_model(x) # enc_class_model is resnet forward, which returns a tuple: classifier, last layer latent code
         return content_code, class_code
 
     def decode(self, content_code, class_code):

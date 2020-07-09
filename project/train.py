@@ -136,12 +136,11 @@ class Net(pl.LightningModule):
         Raises:
             IndexError: If n exceeds batch size
         """
-
         n = self.hparams.num_plot_triplets
         m = input_batches[0].shape[0]
         if m < n:
             raise IndexError(
-                f"You are attempting to plot too many images. For --num_plot_triplets={n} your batch size must be at least {2*n}!"
+                f"You are attempting to plot too many images. For --num_plot_triplets={n} your batch size per GPU must be at least {2*n}, i.e. {2*n*gpus}!"
             )
 
         # denormalize images
