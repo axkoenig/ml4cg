@@ -57,6 +57,7 @@ def parse_args():
     parser.add_argument("--n_epochs_delta_rise", type=int, default=1, help="Number of epochs over which we linearly increase delta from delta_min to delta_max")
     parser.add_argument("--delta_min", type=float, default=0.0, help="Initial value for delta kept for the first <n_epochs_delta_min>")
     parser.add_argument("--delta_max", type=float, default=1.0, help="Maximum value for delta")
+    parser.add_argument("--delta_fixed", type=bool, default=True, help="No linear increase of delta but constant delta_max")
 
     args = parser.parse_args()
 

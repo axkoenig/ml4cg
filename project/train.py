@@ -24,12 +24,13 @@ from networks import cyclegan, g2g, resnet, vgg
 from networks.resnet import init_id_encoder
 from networks.vgg import Vgg16
 
-# normalization constants
-MEAN = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
-STD = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
+# normalization constants for FUNIT 
+MEAN_FUNIT = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
+STD_FUNIT = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
 
-MEAN_RESNET = torch.tensor([131.0912, 103.8827, 91.4953], dtype=torch.float32)
-STD_RESNET = torch.tensor([1, 1, 1], dtype=torch.float32)
+# normalization constants for ID Encoder 
+MEAN_ID = torch.tensor([131.0912, 103.8827, 91.4953], dtype=torch.float32)
+STD_ID = torch.tensor([1, 1, 1], dtype=torch.float32)
 
 class Net(pl.LightningModule):
     def __init__(self, hparams):
@@ -59,7 +60,8 @@ class Net(pl.LightningModule):
         self.mixed_imgs = None
         
         # pretrained resnet requires different normalization
-        self.resnet_norm = transforms.Normalize(MEAN_RESNET.tolist(), STD_RESNET.tolist())
+        self.id_norm = transforms.Normalize(MEAN_ID.tolist(), STD_ID.tolist())
+        self.funit_denorm = transforms.Normalize((-MEAN_FUNIT / STD_FUNIT).tolist(), (1.0 / STD_FUNIT).tolist())
 
     def forward(self, x1, x2):
         """Forward pass of network
@@ -77,7 +79,7 @@ class Net(pl.LightningModule):
                 transforms.Resize(self.hparams.img_size),
                 transforms.CenterCrop(self.hparams.img_size),
                 transforms.ToTensor(),
-                transforms.Normalize(MEAN.tolist(), STD.tolist()),
+                transforms.Normalize(MEAN_FUNIT.tolist(), STD_FUNIT.tolist()),
             ]
         )
 
@@ -146,7 +148,7 @@ class Net(pl.LightningModule):
 
         # denormalize images
         denormalization = transforms.Normalize(
-            (-MEAN / STD).tolist(), (1.0 / STD).tolist()
+            (-MEAN_FUNIT / STD_FUNIT).tolist(), (1.0 / STD_FUNIT).tolist()
         )
         x1 = [denormalization(i) for i in input_batches[0][:n]]
         x2 = [denormalization(i) for i in input_batches[1][:n]]
@@ -186,17 +188,31 @@ class Net(pl.LightningModule):
         Returns:
             - (float) delta: the weight for the id loss in the current epoch
         """
+        if self.hparams.delta_fixed: 
+            return self.delta_max
+
         if self.current_epoch > (n_epochs_delta_min + n_epochs_delta_rise):
             delta = delta_max
         else:
             delta = delta_min + max(0, self.current_epoch - n_epochs_delta_min) * (delta_max / float(n_epochs_delta_rise))
         return delta
 
-    def norm_resnet(self, imgs):
-        imgs = imgs.clone()
-        for i in range(imgs.shape[0]):
-            imgs[i] = self.resnet_norm(imgs[i])
-        return imgs
+    def scale_for_id_encoder(self, imgs):
+        scaled_imgs = imgs.clone()
+        num_imgs = scaled_imgs.shape[0]
+
+        # denormalize images to transform FUNIT range [-1,1] to [0,1]
+        for i in range(num_imgs):
+            scaled_imgs[i] = self.funit_denorm(imgs[i])
+
+        # scale to range [0,255]
+        scaled_imgs *= 255
+
+        # normalize with VGGFace2 mean and std
+        for i in range(num_imgs):
+            scaled_imgs[i] = self.id_norm(imgs[i])
+
+        return scaled_imgs
 
     def calc_g_loss(self, x1, x2, out, prefix):
 
@@ -218,14 +234,15 @@ class Net(pl.LightningModule):
         ### IDENTITY LOSSES ###
         
         # get identity encodings 
-        orig_id_features_1, _ = self.id_enc(self.norm_resnet(x1))
-        orig_id_features_2, _ = self.id_enc(self.norm_resnet(x2))
-        mixed_id_features_1, _ = self.id_enc(self.norm_resnet(out["m1"]))
-        mixed_id_features_2, _ = self.id_enc(self.norm_resnet(out["m2"]))
+        orig_id_features_1, _ = self.id_enc(self.scale_for_id_encoder(x1))
+        orig_id_features_2, _ = self.id_enc(self.scale_for_id_encoder(x2))
+        mixed_id_features_1, _ = self.id_enc(self.scale_for_id_encoder(out["m1"]))
+        mixed_id_features_2, _ = self.id_enc(self.scale_for_id_encoder(out["m2"]))
         
         delta = self.id_loss_weight(self.hparams.n_epochs_delta_min, self.hparams.n_epochs_delta_rise, self.hparams.delta_max, self.hparams.delta_min)
         id_loss = delta * (F.l1_loss(orig_id_features_1, mixed_id_features_2) + F.l1_loss(orig_id_features_2, mixed_id_features_1))
-
+        import pdb; pdb.set_trace()
+        
         ### ADVERSARIAL LOSS ###
         
         self.mixed_imgs = torch.cat((out["m1"], out["m2"]), 0)
