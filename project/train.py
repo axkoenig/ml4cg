@@ -241,7 +241,6 @@ class Net(pl.LightningModule):
         
         delta = self.id_loss_weight(self.hparams.n_epochs_delta_min, self.hparams.n_epochs_delta_rise, self.hparams.delta_max, self.hparams.delta_min)
         id_loss = delta * (F.l1_loss(orig_id_features_1, mixed_id_features_2) + F.l1_loss(orig_id_features_2, mixed_id_features_1))
-        import pdb; pdb.set_trace()
         
         ### ADVERSARIAL LOSS ###
         
