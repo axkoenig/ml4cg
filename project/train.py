@@ -189,7 +189,7 @@ class Net(pl.LightningModule):
             - (float) delta: the weight for the id loss in the current epoch
         """
         if self.hparams.delta_fixed: 
-            return self.delta_max
+            return self.hparams.delta_max
 
         if self.current_epoch > (n_epochs_delta_min + n_epochs_delta_rise):
             delta = delta_max
