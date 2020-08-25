@@ -210,14 +210,15 @@ class Net(pl.LightningModule):
 
         # normalize with VGGFace2 mean and std
         for i in range(num_imgs):
-            scaled_imgs[i] = self.id_norm(imgs[i])
-
+            scaled_imgs[i] = self.id_norm(scaled_imgs[i])
+        
         return scaled_imgs
 
     def calc_g_loss(self, x1, x2, out, prefix):
 
         ### RECONSTRUCTION LOSS ###
         # get vgg features of original and reconstructed images
+        # TODO scale images for vgg
         orig_features_1 = self.vgg(x1)[1]
         orig_features_2 = self.vgg(x2)[1]
         recon_features_1 = self.vgg(out["r1"])[1]
