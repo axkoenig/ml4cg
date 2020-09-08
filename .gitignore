@@ -1,18 +1,9 @@
 # Custom
 *.vscode
-tutorials/data/
-archive/old_logs
-tutorials/cifar_net.pth
-data/
-*/logs/
-*/lightning_logs/
-*.texpadtmp
-*grid_logs*
 *logs
-project/checkpoints
-project/models/*
-project/old/*
-project/wandb
+checkpoints
+models/*
+wandb
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
