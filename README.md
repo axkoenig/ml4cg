@@ -7,17 +7,18 @@ For a more detailed description of the project please view the [project report](
 
 ## Setup
 
-Execute the following steps to set the project up. 
+Execute the following steps to set the project up. Consider activating your virtual environment first. 
 
 ```bash
 git clone git@github.com:axkoenig/ml4cg.git
-pip install -e ml4cg
+pip install -r requirements.txt
 mkdir ml4cg/models
 ```
 
 Now download the pretrained ResNet-50 face recognition network from [here](http://www.robots.ox.ac.uk/~vgg/data/vgg_face2/models/pytorch/resnet50_ft_pytorch.tar.gz) and place it in the ```ml4cg/models``` directory. It is part of the [official VGGFace2 repository](https://github.com/ox-vgg/vgg_face2). Download the [CelebA](http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html) dataset and place it in a convenient location. The default logger of this project is [wandb](https://www.wandb.com). Create an account if you don't have one yet and login with the below command. If you have trouble follow [these](https://docs.wandb.com/quickstart) steps. Thanks to PyTorch Lightning it is easy to change the logger to TensorBoard for example (have a look [here](https://pytorch-lightning.readthedocs.io/en/latest/loggers.html) for more information). 
 
 ```bash
+cd ml4cg
 wandb login
 ```
 
