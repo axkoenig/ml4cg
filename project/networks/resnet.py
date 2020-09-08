@@ -1,34 +1,38 @@
 import torch
 import torch.nn as nn
 
+
 class Identity(nn.Module):
     def __init__(self):
         super(Identity, self).__init__()
-        
+
     def forward(self, x):
         return x
+
 
 def init_id_encoder(face_detector_pth):
     """Turns pretrained face detector into identity encoder
     """
-    # load model 
+    # load model
     face_enc = Resnet50_ft()
     face_enc.load_state_dict(torch.load(face_detector_pth))
     face_enc.eval()
 
-    # freeze weights 
+    # freeze weights
     for c in face_enc.children():
         for p in c.parameters():
             p.requires_grad = False
 
-    # remove last layer 
+    # remove last layer
     face_enc.classifier = Identity()
     return face_enc
+
 
 """
 This file was part of the pre-trained ResNet50 from https://github.com/ox-vgg/vgg_face2
 It is part of the download available at http://www.robots.ox.ac.uk/~vgg/data/vgg_face2/models/pytorch/resnet50_ft_pytorch.tar.gz 
 """
+
 
 class Resnet50_ft(nn.Module):
     def __init__(self):

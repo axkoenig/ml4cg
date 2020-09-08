@@ -24,14 +24,13 @@ Code below this line including classes and functions:
 taken from blocks.py from https://github.com/NVlabs/FUNIT.
 """
 
+
 class ResBlocks(nn.Module):
     def __init__(self, num_blocks, dim, norm, activation, pad_type):
         super(ResBlocks, self).__init__()
         self.model = []
         for i in range(num_blocks):
-            self.model += [
-                ResBlock(dim, norm=norm, activation=activation, pad_type=pad_type)
-            ]
+            self.model += [ResBlock(dim, norm=norm, activation=activation, pad_type=pad_type)]
         self.model = nn.Sequential(*self.model)
 
     def forward(self, x):
@@ -43,16 +42,8 @@ class ResBlock(nn.Module):
         super(ResBlock, self).__init__()
         model = []
         # Conv2dBlock params: self, in_dim, out_dim, ks, st, padding=0, norm='none', activation='relu', pad_type='zero', use_bias=True, activation_first=False
-        model += [
-            Conv2dBlock(
-                dim, dim, 3, 1, 1, norm=norm, activation=activation, pad_type=pad_type
-            )
-        ]
-        model += [
-            Conv2dBlock(
-                dim, dim, 3, 1, 1, norm=norm, activation="none", pad_type=pad_type
-            )
-        ]
+        model += [Conv2dBlock(dim, dim, 3, 1, 1, norm=norm, activation=activation, pad_type=pad_type)]
+        model += [Conv2dBlock(dim, dim, 3, 1, 1, norm=norm, activation="none", pad_type=pad_type)]
         self.model = nn.Sequential(*model)
 
     def forward(self, x):
@@ -190,27 +181,19 @@ class AdaptiveInstanceNorm2d(nn.Module):
         self.register_buffer("running_var", torch.ones(num_features))
 
     def forward(self, x):
-        assert (
-            self.weight is not None and self.bias is not None
-        ), "Please assign AdaIN weight first"
+        assert self.weight is not None and self.bias is not None, "Please assign AdaIN weight first"
         b, c = x.size(0), x.size(1)
         running_mean = self.running_mean.repeat(b)
         running_var = self.running_var.repeat(b)
         x_reshaped = x.contiguous().view(1, b * c, *x.size()[2:])
         out = F.batch_norm(
-            x_reshaped,
-            running_mean,
-            running_var,
-            self.weight,
-            self.bias,
-            True,
-            self.momentum,
-            self.eps,
+            x_reshaped, running_mean, running_var, self.weight, self.bias, True, self.momentum, self.eps,
         )
         return out.view(b, c, *x.size()[2:])
 
     def __repr__(self):
         return self.__class__.__name__ + "(" + str(self.num_features) + ")"
+
 
 """
 Code below this line including classes and functions from :
@@ -239,31 +222,12 @@ class ClassModelEncoder(nn.Module):
     def __init__(self, downs, ind_im, dim, latent_dim, norm, activ, pad_type):
         super(ClassModelEncoder, self).__init__()
         self.model = []
-        self.model += [
-            Conv2dBlock(
-                ind_im, dim, 7, 1, 3, norm=norm, activation=activ, pad_type=pad_type
-            )
-        ]
+        self.model += [Conv2dBlock(ind_im, dim, 7, 1, 3, norm=norm, activation=activ, pad_type=pad_type)]
         for i in range(2):
-            self.model += [
-                Conv2dBlock(
-                    dim,
-                    2 * dim,
-                    4,
-                    2,
-                    1,
-                    norm=norm,
-                    activation=activ,
-                    pad_type=pad_type,
-                )
-            ]
+            self.model += [Conv2dBlock(dim, 2 * dim, 4, 2, 1, norm=norm, activation=activ, pad_type=pad_type,)]
             dim *= 2
         for i in range(downs - 2):
-            self.model += [
-                Conv2dBlock(
-                    dim, dim, 4, 2, 1, norm=norm, activation=activ, pad_type=pad_type
-                )
-            ]
+            self.model += [Conv2dBlock(dim, dim, 4, 2, 1, norm=norm, activation=activ, pad_type=pad_type)]
 
         self.model += [nn.AdaptiveAvgPool2d(1)]
         self.model += [nn.Conv2d(dim, latent_dim, 1, 1, 0)]
@@ -289,28 +253,11 @@ class ContentEncoder(nn.Module):
     def __init__(self, downs, n_res, input_dim, dim, norm, activ, pad_type):
         super(ContentEncoder, self).__init__()
         self.model = []
-        self.model += [
-            Conv2dBlock(
-                input_dim, dim, 7, 1, 3, norm=norm, activation=activ, pad_type=pad_type
-            )
-        ]
+        self.model += [Conv2dBlock(input_dim, dim, 7, 1, 3, norm=norm, activation=activ, pad_type=pad_type)]
         for i in range(downs):
-            self.model += [
-                Conv2dBlock(
-                    dim,
-                    2 * dim,
-                    4,
-                    2,
-                    1,
-                    norm=norm,
-                    activation=activ,
-                    pad_type=pad_type,
-                )
-            ]
+            self.model += [Conv2dBlock(dim, 2 * dim, 4, 2, 1, norm=norm, activation=activ, pad_type=pad_type,)]
             dim *= 2
-        self.model += [
-            ResBlocks(n_res, dim, norm=norm, activation=activ, pad_type=pad_type)
-        ]
+        self.model += [ResBlocks(n_res, dim, norm=norm, activation=activ, pad_type=pad_type)]
         self.model = nn.Sequential(*self.model)
         self.output_dim = dim
 
@@ -338,23 +285,10 @@ class Decoder(nn.Module):
         for i in range(ups):
             self.model += [
                 nn.Upsample(scale_factor=2),
-                Conv2dBlock(
-                    dim,
-                    dim // 2,
-                    5,
-                    1,
-                    2,
-                    norm="in",
-                    activation=activ,
-                    pad_type=pad_type,
-                ),
+                Conv2dBlock(dim, dim // 2, 5, 1, 2, norm="in", activation=activ, pad_type=pad_type,),
             ]
             dim //= 2
-        self.model += [
-            Conv2dBlock(
-                dim, out_dim, 7, 1, 3, norm="none", activation="tanh", pad_type=pad_type
-            )
-        ]
+        self.model += [Conv2dBlock(dim, out_dim, 7, 1, 3, norm="none", activation="tanh", pad_type=pad_type)]
         self.model = nn.Sequential(*self.model)
 
     def forward(self, x):

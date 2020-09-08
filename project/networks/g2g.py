@@ -7,6 +7,7 @@ This file defines the G2G architecture
 Some of the below code comes from https://github.com/NVlabs/FUNIT/blob/master/networks.py 
 """
 
+
 class Generator(nn.Module):
     def __init__(self, nf, nf_mlp, down_class, down_content, n_mlp_blks, n_res_blks, latent_dim):
         super(Generator, self).__init__()
@@ -25,9 +26,7 @@ class Generator(nn.Module):
             down_class, 3, nf, latent_dim, norm="none", activ="relu", pad_type="reflect"
         )
 
-        self.enc_content = ContentEncoder(
-            down_content, n_res_blks, 3, nf, "in", activ="relu", pad_type="reflect"
-        )
+        self.enc_content = ContentEncoder(down_content, n_res_blks, 3, nf, "in", activ="relu", pad_type="reflect")
 
         self.dec = Decoder(
             down_content,
@@ -39,14 +38,7 @@ class Generator(nn.Module):
             pad_type="reflect",
         )
 
-        self.mlp = MLP(
-            latent_dim,
-            get_num_adain_params(self.dec),
-            nf_mlp,
-            n_mlp_blks,
-            norm="none",
-            activ="relu",
-        )
+        self.mlp = MLP(latent_dim, get_num_adain_params(self.dec), nf_mlp, n_mlp_blks, norm="none", activ="relu",)
 
     def forward(self, x1, x2):
         """Forward pass of network

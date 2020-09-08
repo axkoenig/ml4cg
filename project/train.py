@@ -24,19 +24,20 @@ from networks import cyclegan, g2g, resnet, vgg
 from networks.resnet import init_id_encoder
 from networks.vgg import Vgg16
 
-# normalization constants for FUNIT 
+# normalization constants for FUNIT
 MEAN_FUNIT = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
 STD_FUNIT = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
 
-# normalization constants for ID Encoder 
+# normalization constants for ID Encoder
 MEAN_ID = torch.tensor([131.0912, 103.8827, 91.4953], dtype=torch.float32)
 STD_ID = torch.tensor([1, 1, 1], dtype=torch.float32)
+
 
 class Net(pl.LightningModule):
     def __init__(self, hparams):
         super(Net, self).__init__()
         self.hparams = hparams
-        
+
         self.gen = g2g.Generator(
             self.hparams.nf,
             self.hparams.nf_mlp,
@@ -44,7 +45,8 @@ class Net(pl.LightningModule):
             self.hparams.down_content,
             self.hparams.n_mlp_blks,
             self.hparams.n_res_blks,
-            self.hparams.latent_dim)
+            self.hparams.latent_dim,
+        )
         self.dis = cyclegan.define_D(
             self.hparams.nc,
             self.hparams.nfd,
@@ -58,7 +60,7 @@ class Net(pl.LightningModule):
         self.id_enc = init_id_encoder(self.hparams.face_detector_pth)
         self.gan_criterion = cyclegan.GANLoss(self.hparams.gan_mode)
         self.mixed_imgs = None
-        
+
         # pretrained resnet requires different normalization
         self.id_norm = transforms.Normalize(MEAN_ID.tolist(), STD_ID.tolist())
         self.funit_denorm = transforms.Normalize((-MEAN_FUNIT / STD_FUNIT).tolist(), (1.0 / STD_FUNIT).tolist())
@@ -109,18 +111,12 @@ class Net(pl.LightningModule):
 
     def val_dataloader(self):
         return DataLoader(
-            self.val_dataset,
-            batch_size=self.hparams.batch_size,
-            num_workers=self.hparams.num_workers,
-            drop_last=True,
+            self.val_dataset, batch_size=self.hparams.batch_size, num_workers=self.hparams.num_workers, drop_last=True,
         )
 
     def test_dataloader(self):
         return DataLoader(
-            self.test_dataset,
-            batch_size=self.hparams.batch_size,
-            num_workers=self.hparams.num_workers,
-            drop_last=True,
+            self.test_dataset, batch_size=self.hparams.batch_size, num_workers=self.hparams.num_workers, drop_last=True,
         )
 
     def configure_optimizers(self):
@@ -147,9 +143,7 @@ class Net(pl.LightningModule):
             )
 
         # denormalize images
-        denormalization = transforms.Normalize(
-            (-MEAN_FUNIT / STD_FUNIT).tolist(), (1.0 / STD_FUNIT).tolist()
-        )
+        denormalization = transforms.Normalize((-MEAN_FUNIT / STD_FUNIT).tolist(), (1.0 / STD_FUNIT).tolist())
         x1 = [denormalization(i) for i in input_batches[0][:n]]
         x2 = [denormalization(i) for i in input_batches[1][:n]]
         m1 = [denormalization(i) for i in mixed_batches[0][:n]]
@@ -170,15 +164,13 @@ class Net(pl.LightningModule):
             # add offset between image triplets
             if n > 1 and i < n - 1:
                 border_width = 6
-                border = torch.zeros(
-                    plot.shape[0], plot.shape[1], border_width, device=x1[0].device
-                )
+                border = torch.zeros(plot.shape[0], plot.shape[1], border_width, device=x1[0].device)
                 plot = torch.cat((plot, border), 2)
 
         name = f"{prefix}/input_mixed_reconstr_images"
         self.logger.experiment.log({name: [wandb.Image(plot, caption=caption)]})
 
-    def id_loss_weight(self, n_epochs_delta_min, n_epochs_delta_rise, delta_max, delta_min = 0.0):
+    def id_loss_weight(self, n_epochs_delta_min, n_epochs_delta_rise, delta_max, delta_min=0.0):
         """
         Parameters:
             - (int) n_epochs_delta_min: We keep the same weight for the first <n_epochs_delta_min> epochs
@@ -188,13 +180,15 @@ class Net(pl.LightningModule):
         Returns:
             - (float) delta: the weight for the id loss in the current epoch
         """
-        if self.hparams.delta_fixed: 
+        if self.hparams.delta_fixed:
             return self.hparams.delta_max
 
         if self.current_epoch > (n_epochs_delta_min + n_epochs_delta_rise):
             delta = delta_max
         else:
-            delta = delta_min + max(0, self.current_epoch - n_epochs_delta_min) * (delta_max / float(n_epochs_delta_rise))
+            delta = delta_min + max(0, self.current_epoch - n_epochs_delta_min) * (
+                delta_max / float(n_epochs_delta_rise)
+            )
         return delta
 
     def scale_for_id_encoder(self, imgs):
@@ -211,7 +205,7 @@ class Net(pl.LightningModule):
         # normalize with VGGFace2 mean and std
         for i in range(num_imgs):
             scaled_imgs[i] = self.id_norm(scaled_imgs[i])
-        
+
         return scaled_imgs
 
     def calc_g_loss(self, x1, x2, out, prefix):
@@ -223,34 +217,49 @@ class Net(pl.LightningModule):
         orig_features_2 = self.vgg(x2)[1]
         recon_features_1 = self.vgg(out["r1"])[1]
         recon_features_2 = self.vgg(out["r2"])[1]
-        
-        vgg_loss = self.hparams.alpha * (F.l1_loss(orig_features_1, recon_features_1) + F.l1_loss(orig_features_2, recon_features_2))
+
+        vgg_loss = self.hparams.alpha * (
+            F.l1_loss(orig_features_1, recon_features_1) + F.l1_loss(orig_features_2, recon_features_2)
+        )
 
         ### CYCLE CONSISTENCY LOSSES ###
-        
+
         cycle_loss_a = F.mse_loss(out["x1_a"], out["m1_a"]) + F.mse_loss(out["x2_a"], out["m2_a"])
         cycle_loss_b = F.mse_loss(out["x1_b"], out["m2_b"]) + F.mse_loss(out["x2_b"], out["m1_b"])
         cycle_loss = self.hparams.gamma * (cycle_loss_a + cycle_loss_b)
 
         ### IDENTITY LOSSES ###
-        
-        # get identity encodings 
+
+        # get identity encodings
         orig_id_features_1, _ = self.id_enc(self.scale_for_id_encoder(x1))
         orig_id_features_2, _ = self.id_enc(self.scale_for_id_encoder(x2))
         mixed_id_features_1, _ = self.id_enc(self.scale_for_id_encoder(out["m1"]))
         mixed_id_features_2, _ = self.id_enc(self.scale_for_id_encoder(out["m2"]))
-        
-        delta = self.id_loss_weight(self.hparams.n_epochs_delta_min, self.hparams.n_epochs_delta_rise, self.hparams.delta_max, self.hparams.delta_min)
-        id_loss = delta * (F.l1_loss(orig_id_features_1, mixed_id_features_2) + F.l1_loss(orig_id_features_2, mixed_id_features_1))
-        
+
+        delta = self.id_loss_weight(
+            self.hparams.n_epochs_delta_min,
+            self.hparams.n_epochs_delta_rise,
+            self.hparams.delta_max,
+            self.hparams.delta_min,
+        )
+        id_loss = delta * (
+            F.l1_loss(orig_id_features_1, mixed_id_features_2) + F.l1_loss(orig_id_features_2, mixed_id_features_1)
+        )
+
         ### ADVERSARIAL LOSS ###
-        
+
         self.mixed_imgs = torch.cat((out["m1"], out["m2"]), 0)
         adv_g_loss = self.hparams.lambda_g * self.gan_criterion(self.dis(self.mixed_imgs), True)
 
         ### OVERALL GENERATOR LOSS ###
         loss = vgg_loss + cycle_loss + id_loss + adv_g_loss
-        log = {f"{prefix}/vgg_loss": vgg_loss, f"{prefix}/cycle_loss": cycle_loss, f"{prefix}/id_loss": id_loss, f"{prefix}/adv_g_loss": adv_g_loss, f"{prefix}/delta": delta}
+        log = {
+            f"{prefix}/vgg_loss": vgg_loss,
+            f"{prefix}/cycle_loss": cycle_loss,
+            f"{prefix}/id_loss": id_loss,
+            f"{prefix}/adv_g_loss": adv_g_loss,
+            f"{prefix}/delta": delta,
+        }
 
         return loss, log
 
@@ -321,10 +330,10 @@ class Net(pl.LightningModule):
 
 
 def main(hparams):
-    # clean up 
+    # clean up
     gc.collect()
     torch.cuda.empty_cache()
-    
+
     logger = loggers.WandbLogger(name=hparams.log_name, project="ml4cg")
 
     model = Net(hparams)
