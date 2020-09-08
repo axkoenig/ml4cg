@@ -49,6 +49,7 @@ Code below this line including classes and functions:
 taken from https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix.
 """
 
+
 def init_net(net, init_type="normal", init_gain=0.02):
     """Initialize a network
     Parameters:
@@ -73,9 +74,7 @@ def init_weights(net, init_type="normal", init_gain=0.02):
 
     def init_func(m):  # define the initialization function
         classname = m.__class__.__name__
-        if hasattr(m, "weight") and (
-            classname.find("Conv") != -1 or classname.find("Linear") != -1
-        ):
+        if hasattr(m, "weight") and (classname.find("Conv") != -1 or classname.find("Linear") != -1):
             if init_type == "normal":
                 init.normal_(m.weight.data, 0.0, init_gain)
             elif init_type == "xavier":
@@ -85,9 +84,7 @@ def init_weights(net, init_type="normal", init_gain=0.02):
             elif init_type == "orthogonal":
                 init.orthogonal_(m.weight.data, gain=init_gain)
             else:
-                raise NotImplementedError(
-                    "initialization method [%s] is not implemented" % init_type
-                )
+                raise NotImplementedError("initialization method [%s] is not implemented" % init_type)
             if hasattr(m, "bias") and m.bias is not None:
                 init.constant_(m.bias.data, 0.0)
         elif (
@@ -113,13 +110,9 @@ def get_norm_layer(norm_type="instance"):
     For InstanceNorm, we do not use learnable affine parameters. We do not track running statistics.
     """
     if norm_type == "batch":
-        norm_layer = functools.partial(
-            nn.BatchNorm2d, affine=True, track_running_stats=True
-        )
+        norm_layer = functools.partial(nn.BatchNorm2d, affine=True, track_running_stats=True)
     elif norm_type == "instance":
-        norm_layer = functools.partial(
-            nn.InstanceNorm2d, affine=False, track_running_stats=False
-        )
+        norm_layer = functools.partial(nn.InstanceNorm2d, affine=False, track_running_stats=False)
     elif norm_type == "none":
 
         def norm_layer(x):
@@ -144,39 +137,23 @@ def get_scheduler(optimizer, opt):
     if opt.lr_policy == "linear":
 
         def lambda_rule(epoch):
-            lr_l = 1.0 - max(0, epoch + opt.epoch_count - opt.n_epochs) / float(
-                opt.n_epochs_decay + 1
-            )
+            lr_l = 1.0 - max(0, epoch + opt.epoch_count - opt.n_epochs) / float(opt.n_epochs_decay + 1)
             return lr_l
 
         scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_rule)
     elif opt.lr_policy == "step":
-        scheduler = lr_scheduler.StepLR(
-            optimizer, step_size=opt.lr_decay_iters, gamma=0.1
-        )
+        scheduler = lr_scheduler.StepLR(optimizer, step_size=opt.lr_decay_iters, gamma=0.1)
     elif opt.lr_policy == "plateau":
-        scheduler = lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.2, threshold=0.01, patience=5
-        )
+        scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.2, threshold=0.01, patience=5)
     elif opt.lr_policy == "cosine":
-        scheduler = lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=opt.n_epochs, eta_min=0
-        )
+        scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=opt.n_epochs, eta_min=0)
     else:
-        return NotImplementedError(
-            "learning rate policy [%s] is not implemented", opt.lr_policy
-        )
+        return NotImplementedError("learning rate policy [%s] is not implemented", opt.lr_policy)
     return scheduler
 
 
 def define_D(
-    input_nc,
-    ndf,
-    netD,
-    n_layers_D=3,
-    norm="batch",
-    init_type="normal",
-    init_gain=0.02,
+    input_nc, ndf, netD, n_layers_D=3, norm="batch", init_type="normal", init_gain=0.02,
 ):
     """Create a discriminator
     Parameters:
@@ -210,9 +187,7 @@ def define_D(
     elif netD == "pixel":  # classify if each pixel is real or fake
         net = PixelDiscriminator(input_nc, ndf, norm_layer=norm_layer)
     else:
-        raise NotImplementedError(
-            "Discriminator model name [%s] is not recognized" % netD
-        )
+        raise NotImplementedError("Discriminator model name [%s] is not recognized" % netD)
     return init_net(net, init_type, init_gain)
 
 
@@ -228,9 +203,7 @@ class NLayerDiscriminator(nn.Module):
             norm_layer      -- normalization layer
         """
         super(NLayerDiscriminator, self).__init__()
-        if (
-            type(norm_layer) == functools.partial
-        ):  # no need to use bias as BatchNorm2d has affine parameters
+        if type(norm_layer) == functools.partial:  # no need to use bias as BatchNorm2d has affine parameters
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d
@@ -247,14 +220,7 @@ class NLayerDiscriminator(nn.Module):
             nf_mult_prev = nf_mult
             nf_mult = min(2 ** n, 8)
             sequence += [
-                nn.Conv2d(
-                    ndf * nf_mult_prev,
-                    ndf * nf_mult,
-                    kernel_size=kw,
-                    stride=2,
-                    padding=padw,
-                    bias=use_bias,
-                ),
+                nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias,),
                 norm_layer(ndf * nf_mult),
                 nn.LeakyReLU(0.2, True),
             ]
@@ -262,14 +228,7 @@ class NLayerDiscriminator(nn.Module):
         nf_mult_prev = nf_mult
         nf_mult = min(2 ** n_layers, 8)
         sequence += [
-            nn.Conv2d(
-                ndf * nf_mult_prev,
-                ndf * nf_mult,
-                kernel_size=kw,
-                stride=1,
-                padding=padw,
-                bias=use_bias,
-            ),
+            nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias,),
             norm_layer(ndf * nf_mult),
             nn.LeakyReLU(0.2, True),
         ]
@@ -295,9 +254,7 @@ class PixelDiscriminator(nn.Module):
             norm_layer      -- normalization layer
         """
         super(PixelDiscriminator, self).__init__()
-        if (
-            type(norm_layer) == functools.partial
-        ):  # no need to use bias as BatchNorm2d has affine parameters
+        if type(norm_layer) == functools.partial:  # no need to use bias as BatchNorm2d has affine parameters
             use_bias = norm_layer.func == nn.InstanceNorm2d
         else:
             use_bias = norm_layer == nn.InstanceNorm2d

@@ -28,17 +28,17 @@ def scale_for_id_encoder(imgs):
 
 def main(hparams):
     transform = transforms.Compose(
-        [
-            transforms.Resize(hparams.img_size),
-            transforms.CenterCrop(hparams.img_size),
-            transforms.ToTensor(),
-        ]
+        [transforms.Resize(hparams.img_size), transforms.CenterCrop(hparams.img_size), transforms.ToTensor(),]
     )
-    
+
     id_enc = init_id_encoder(hparams.face_detector_pth)
 
-    img1 = Image.open("/specific/netapp5_3/rent_public/dcor-01-2021/ronmokady/workshop20/team6/data/celebA/images/000001.jpg")
-    img2 = Image.open("/specific/netapp5_3/rent_public/dcor-01-2021/ronmokady/workshop20/team6/data/celebA/images/000402.jpg")
+    img1 = Image.open(
+        "/specific/netapp5_3/rent_public/dcor-01-2021/ronmokady/workshop20/team6/data/celebA/images/000001.jpg"
+    )
+    img2 = Image.open(
+        "/specific/netapp5_3/rent_public/dcor-01-2021/ronmokady/workshop20/team6/data/celebA/images/000402.jpg"
+    )
     img1 = transform(img1).unsqueeze(0)
     img2 = transform(img2).unsqueeze(0)
 
@@ -47,6 +47,7 @@ def main(hparams):
 
     loss = F.mse_loss(enc1, enc2)
     print(f"loss is {loss}")
+
 
 if __name__ == "__main__":
 

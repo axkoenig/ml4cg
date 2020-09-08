@@ -1,4 +1,4 @@
-import torch 
+import torch
 import torchvision.transforms as transforms
 from torch import nn
 
@@ -10,13 +10,14 @@ This file defines the G2G architecture
 Some of the below code comes from https://github.com/NVlabs/FUNIT/blob/master/networks.py 
 """
 
-# normalization constants for ID Encoder 
+# normalization constants for ID Encoder
 MEAN_ID = torch.tensor([131.0912, 103.8827, 91.4953], dtype=torch.float32)
 STD_ID = torch.tensor([1, 1, 1], dtype=torch.float32)
 
-# normalization constants for FUNIT 
+# normalization constants for FUNIT
 MEAN_FUNIT = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
 STD_FUNIT = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
+
 
 class Generator(nn.Module):
     def __init__(self, nf, nf_mlp, down_class, down_content, n_mlp_blks, n_res_blks, latent_dim, face_detector_pth):
@@ -34,9 +35,7 @@ class Generator(nn.Module):
 
         self.enc_id = init_id_encoder(face_detector_pth)
 
-        self.enc_content = ContentEncoder(
-            down_content, n_res_blks, 3, nf, "in", activ="relu", pad_type="reflect"
-        )
+        self.enc_content = ContentEncoder(down_content, n_res_blks, 3, nf, "in", activ="relu", pad_type="reflect")
 
         self.dec = Decoder(
             down_content,
@@ -48,15 +47,8 @@ class Generator(nn.Module):
             pad_type="reflect",
         )
 
-        self.mlp = MLP(
-            latent_dim,
-            get_num_adain_params(self.dec),
-            nf_mlp,
-            n_mlp_blks,
-            norm="none",
-            activ="relu",
-        )
-        
+        self.mlp = MLP(latent_dim, get_num_adain_params(self.dec), nf_mlp, n_mlp_blks, norm="none", activ="relu",)
+
         # pretrained id encoder requires different normalization
         self.id_norm = transforms.Normalize(MEAN_ID.tolist(), STD_ID.tolist())
         self.funit_denorm = transforms.Normalize((-MEAN_FUNIT / STD_FUNIT).tolist(), (1.0 / STD_FUNIT).tolist())
@@ -80,7 +72,7 @@ class Generator(nn.Module):
         # generate mixed images
         m1 = self.decode(x1_c, x2_id)
         m2 = self.decode(x2_c, x1_id)
-        
+
         # reconstruct input images
         x1_hat = self.decode(x1_c, x1_id)
         x2_hat = self.decode(x2_c, x2_id)
@@ -127,7 +119,7 @@ class Generator(nn.Module):
         # normalize with VGGFace2 mean and std
         for i in range(num_imgs):
             scaled_imgs[i] = self.id_norm(scaled_imgs[i])
-        
+
         return scaled_imgs
 
     def encode(self, x):

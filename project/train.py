@@ -25,15 +25,16 @@ from networks import cyclegan, g2g, resnet, vgg
 MEAN_FUNIT = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
 STD_FUNIT = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
 
-# normalization constants for VGG16 
+# normalization constants for VGG16
 MEAN_IMGNET = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32)
 STD_IMGNET = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32)
+
 
 class Net(pl.LightningModule):
     def __init__(self, hparams):
         super(Net, self).__init__()
         self.hparams = hparams
-        
+
         self.gen = g2g.Generator(
             self.hparams.nf,
             self.hparams.nf_mlp,
@@ -42,7 +43,8 @@ class Net(pl.LightningModule):
             self.hparams.n_mlp_blks,
             self.hparams.n_res_blks,
             self.hparams.latent_dim,
-            self.hparams.face_detector_pth)
+            self.hparams.face_detector_pth,
+        )
         self.dis = cyclegan.define_D(
             self.hparams.nc,
             self.hparams.nfd,
@@ -55,10 +57,10 @@ class Net(pl.LightningModule):
         self.vgg = vgg.Vgg16()
         self.gan_criterion = cyclegan.GANLoss(self.hparams.gan_mode)
         self.mixed_imgs = None
-        
+
         self.funit_denorm = transforms.Normalize((-MEAN_FUNIT / STD_FUNIT).tolist(), (1.0 / STD_FUNIT).tolist())
         self.vgg_norm = transforms.Normalize(MEAN_IMGNET.tolist(), STD_IMGNET.tolist())
-        
+
     def forward(self, x1, x2):
         """Forward pass of network
         Args:
@@ -105,18 +107,12 @@ class Net(pl.LightningModule):
 
     def val_dataloader(self):
         return DataLoader(
-            self.val_dataset,
-            batch_size=self.hparams.batch_size,
-            num_workers=self.hparams.num_workers,
-            drop_last=True,
+            self.val_dataset, batch_size=self.hparams.batch_size, num_workers=self.hparams.num_workers, drop_last=True,
         )
 
     def test_dataloader(self):
         return DataLoader(
-            self.test_dataset,
-            batch_size=self.hparams.batch_size,
-            num_workers=self.hparams.num_workers,
-            drop_last=True,
+            self.test_dataset, batch_size=self.hparams.batch_size, num_workers=self.hparams.num_workers, drop_last=True,
         )
 
     def configure_optimizers(self):
@@ -143,9 +139,7 @@ class Net(pl.LightningModule):
             )
 
         # denormalize images
-        denormalization = transforms.Normalize(
-            (-MEAN_FUNIT / STD_FUNIT).tolist(), (1.0 / STD_FUNIT).tolist()
-        )
+        denormalization = transforms.Normalize((-MEAN_FUNIT / STD_FUNIT).tolist(), (1.0 / STD_FUNIT).tolist())
         x1 = [denormalization(i) for i in input_batches[0][:n]]
         x2 = [denormalization(i) for i in input_batches[1][:n]]
         m1 = [denormalization(i) for i in mixed_batches[0][:n]]
@@ -166,9 +160,7 @@ class Net(pl.LightningModule):
             # add offset between image triplets
             if n > 1 and i < n - 1:
                 border_width = 6
-                border = torch.zeros(
-                    plot.shape[0], plot.shape[1], border_width, device=x1[0].device
-                )
+                border = torch.zeros(plot.shape[0], plot.shape[1], border_width, device=x1[0].device)
                 plot = torch.cat((plot, border), 2)
 
         name = f"{prefix}/input_mixed_reconstr_images"
@@ -188,7 +180,7 @@ class Net(pl.LightningModule):
         # normalize with ImageNet mean and std
         for i in range(num_imgs):
             scaled_imgs[i] = self.vgg_norm(scaled_imgs[i])
-        
+
         return scaled_imgs
 
     def calc_g_loss(self, x1, x2, out, prefix):
@@ -200,24 +192,38 @@ class Net(pl.LightningModule):
         orig_features_2 = self.vgg(self.scale_for_vgg(x2))[1]
         recon_l_features_1 = self.vgg(self.scale_for_vgg(out["r1"]))[1]
         recon_l_features_2 = self.vgg(self.scale_for_vgg(out["r2"]))[1]
-        vgg_loss_l = self.hparams.alpha_l * (F.l1_loss(orig_features_1, recon_l_features_1) + F.l1_loss(orig_features_2, recon_l_features_2))
+        vgg_loss_l = self.hparams.alpha_l * (
+            F.l1_loss(orig_features_1, recon_l_features_1) + F.l1_loss(orig_features_2, recon_l_features_2)
+        )
 
-        # short reconstruction loss 
+        # short reconstruction loss
         recon_s_features_1 = self.vgg(self.scale_for_vgg(out["x1_hat"]))[1]
         recon_s_features_2 = self.vgg(self.scale_for_vgg(out["x2_hat"]))[1]
-        vgg_loss_s = self.hparams.alpha_s * (F.l1_loss(orig_features_1, recon_s_features_1) + F.l1_loss(orig_features_2, recon_s_features_2))
+        vgg_loss_s = self.hparams.alpha_s * (
+            F.l1_loss(orig_features_1, recon_s_features_1) + F.l1_loss(orig_features_2, recon_s_features_2)
+        )
 
         ### CYCLE CONSISTENCY LOSSES ###
-        cycle_loss_c = self.hparams.gamma_c * (F.mse_loss(out["x1_c"], out["m2_c"]) + F.mse_loss(out["x2_c"], out["m1_c"]))
-        cycle_loss_id = self.hparams.gamma_id * (F.mse_loss(out["x1_id"], out["m2_id"]) + F.mse_loss(out["x2_id"], out["m1_id"]))
-       
+        cycle_loss_c = self.hparams.gamma_c * (
+            F.mse_loss(out["x1_c"], out["m2_c"]) + F.mse_loss(out["x2_c"], out["m1_c"])
+        )
+        cycle_loss_id = self.hparams.gamma_id * (
+            F.mse_loss(out["x1_id"], out["m2_id"]) + F.mse_loss(out["x2_id"], out["m1_id"])
+        )
+
         ### ADVERSARIAL LOSS ###
         self.mixed_imgs = torch.cat((out["m1"], out["m2"]), 0)
         adv_g_loss = self.hparams.delta * self.gan_criterion(self.dis(self.mixed_imgs), True)
 
         ### OVERALL GENERATOR LOSS ###
         loss = vgg_loss_l + vgg_loss_s + cycle_loss_c + cycle_loss_id + adv_g_loss
-        log = {f"{prefix}/vgg_loss_l": vgg_loss_l, f"{prefix}/vgg_loss_s": vgg_loss_s, f"{prefix}/cycle_loss_c": cycle_loss_c, f"{prefix}/cycle_loss_id": cycle_loss_id, f"{prefix}/adv_g_loss": adv_g_loss}
+        log = {
+            f"{prefix}/vgg_loss_l": vgg_loss_l,
+            f"{prefix}/vgg_loss_s": vgg_loss_s,
+            f"{prefix}/cycle_loss_c": cycle_loss_c,
+            f"{prefix}/cycle_loss_id": cycle_loss_id,
+            f"{prefix}/adv_g_loss": adv_g_loss,
+        }
 
         return loss, log
 
@@ -288,10 +294,10 @@ class Net(pl.LightningModule):
 
 
 def main(hparams):
-    # clean up 
+    # clean up
     gc.collect()
     torch.cuda.empty_cache()
-    
+
     logger = loggers.WandbLogger(name=hparams.log_name, project="ml4cg")
 
     model = Net(hparams)
