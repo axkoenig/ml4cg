@@ -9,9 +9,9 @@ def parse_args():
     parser.add_argument("--log_name", type=str, default="test", help="Log name")
     parser.add_argument("--face_detector_pth", type=str, default="models/resnet50_ft_dims_2048.pth", help="Path of pretrained face detector")
     parser.add_argument("--num_workers", type=int, default=4, help="num_workers > 0 turns on multi-process data loading")
-    parser.add_argument("--gpus", type=int, default=2, help="Number of GPUs. Use 0 for CPU mode")
+    parser.add_argument("--gpus", type=int, default=0, help="Number of GPUs. Use 0 for CPU mode")
     parser.add_argument("--num_sanity_val_steps", type=int, default=0, help="Number of val sanity checks before starting training")
-    parser.add_argument("--num_plots_per_epoch", type=int, default=10, help="How often to plot in one training epoch")
+    parser.add_argument("--num_plots_per_epoch", type=int, default=100, help="How often to plot in one training epoch")
     parser.add_argument("--num_plot_triplets", type=int, default=4, help="How many image triplets to plot")
 
     # Preprocessing
@@ -36,7 +36,7 @@ def parse_args():
     parser.add_argument("--down_content", type=int, default=3, help="How often image is downsampled by half of its size in content encoder")
     parser.add_argument("--n_mlp_blks", type=int, default=3, help="Number of FC layers in MLP module")
     parser.add_argument("--n_res_blks", type=int, default=2, help="number of ResBlks in content encoder")
-    parser.add_argument("--latent_dim", type=int, default=1024, help="Size of latent class code")
+    parser.add_argument("--latent_dim", type=int, default=2048, help="Size of latent class code")
 
     # Discriminator 
     parser.add_argument("--nfd", type=int, default=64, help="The number of filters in the first conv layer of the discriminator")
@@ -47,18 +47,13 @@ def parse_args():
     parser.add_argument("--init_gain", type=float, default=0.02, help="Scaling factor for normal, xavier and orthogonal")
 
     # Loss weights
-    parser.add_argument("--alpha", type=float, default=1.0, help="Weight of vgg perceptual loss")
-    parser.add_argument("--gamma", type=float, default=10.0, help="Weight of cycle consistency losses")
-    parser.add_argument("--lambda_g", type=float, default=1.0, help="Weight of adversarial loss for generator")
-    parser.add_argument("--zeta", type=float, default=0.2, help="Weight of discriminator loss")
+    parser.add_argument("--alpha_l", type=float, default=1.0, help="Weight of long reconstruction loss")
+    parser.add_argument("--alpha_s", type=float, default=1.0, help="Weight of short reconstruction loss")
+    parser.add_argument("--gamma_c", type=float, default=1.0, help="Weight of content cycle consistency loss")
+    parser.add_argument("--gamma_id", type=float, default=1.0, help="Weight of identity cycle consistency loss")
+    parser.add_argument("--delta", type=float, default=1.0, help="Weight of adversarial loss for generator")
+    parser.add_argument("--zeta", type=float, default=1.0, help="Weight of discriminator loss")
     
-    # Parameters for successive increase of ID loss weight
-    parser.add_argument("--n_epochs_delta_min", type=int, default=0, help="Number of epochs in which delta=delta_min")
-    parser.add_argument("--n_epochs_delta_rise", type=int, default=1, help="Number of epochs over which we linearly increase delta from delta_min to delta_max")
-    parser.add_argument("--delta_min", type=float, default=0.0, help="Initial value for delta kept for the first <n_epochs_delta_min>")
-    parser.add_argument("--delta_max", type=float, default=1.0, help="Maximum value for delta")
-    parser.add_argument("--delta_fixed", type=bool, default=True, help="No linear increase of delta but constant delta_max")
-
     args = parser.parse_args()
 
     if args.batch_size < 2:
