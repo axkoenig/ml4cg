@@ -34,5 +34,5 @@ We would like to thank Ron Mokady, Daniel Cohen-Or, and Yotam Nitzan for their o
 
 - Liu, Ming-Yu, et al. "Few-shot unsupervised image-to-image translation." Proceedings of the IEEE International Conference on Computer Vision. 2019.
 - Gabbay, Aviv, and Yedid Hoshen. "Demystifying inter-class disentanglement." International Conference on Learning Representations. 2019.
-- Zhu, Jun-Yan, et al. "Unpaired image-to-image translation using cycle-consistent adversarial networks." Proceedings of the IEEE international conference on computer vision. 2017.
-- Cao, Qiong, et al. "Vggface2: A dataset for recognising faces across pose and age." 2018 13th IEEE International Conference on Automatic Face & Gesture Recognition (FG 2018). IEEE, 2018.
+- Zhu, Jun-Yan, et al. "Unpaired image-to-image translation using cycle-consistent adversarial networks." Proceedings of the IEEE International Conference on Computer Vision. 2017.
+- Cao, Qiong, et al. "Vggface2: A dataset for recognising faces across pose and age." IEEE International Conference on Automatic Face & Gesture Recognition. 2018.
