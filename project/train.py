@@ -15,22 +15,19 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from torch import nn
 from torch.optim import Adam, RMSprop
 from torch.utils.data import DataLoader, Subset
-from torchsummary import summary
 from torchvision import models
 from torchvision.datasets import ImageFolder
 
 from args import parse_args
 from networks import cyclegan, g2g, resnet, vgg
-from networks.resnet import init_id_encoder
-from networks.vgg import Vgg16
 
-# normalization constants for FUNIT 
+# normalization constants for FUNIT
 MEAN_FUNIT = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
 STD_FUNIT = torch.tensor([0.5, 0.5, 0.5], dtype=torch.float32)
 
-# normalization constants for ID Encoder 
-MEAN_ID = torch.tensor([131.0912, 103.8827, 91.4953], dtype=torch.float32)
-STD_ID = torch.tensor([1, 1, 1], dtype=torch.float32)
+# normalization constants for VGG16 
+MEAN_IMGNET = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32)
+STD_IMGNET = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32)
 
 class Net(pl.LightningModule):
     def __init__(self, hparams):
@@ -44,7 +41,8 @@ class Net(pl.LightningModule):
             self.hparams.down_content,
             self.hparams.n_mlp_blks,
             self.hparams.n_res_blks,
-            self.hparams.latent_dim)
+            self.hparams.latent_dim,
+            self.hparams.face_detector_pth)
         self.dis = cyclegan.define_D(
             self.hparams.nc,
             self.hparams.nfd,
@@ -54,15 +52,13 @@ class Net(pl.LightningModule):
             self.hparams.init_type,
             self.hparams.init_gain,
         )
-        self.vgg = Vgg16()
-        self.id_enc = init_id_encoder(self.hparams.face_detector_pth)
+        self.vgg = vgg.Vgg16()
         self.gan_criterion = cyclegan.GANLoss(self.hparams.gan_mode)
         self.mixed_imgs = None
         
-        # pretrained resnet requires different normalization
-        self.id_norm = transforms.Normalize(MEAN_ID.tolist(), STD_ID.tolist())
         self.funit_denorm = transforms.Normalize((-MEAN_FUNIT / STD_FUNIT).tolist(), (1.0 / STD_FUNIT).tolist())
-
+        self.vgg_norm = transforms.Normalize(MEAN_IMGNET.tolist(), STD_IMGNET.tolist())
+        
     def forward(self, x1, x2):
         """Forward pass of network
         Args:
@@ -178,26 +174,10 @@ class Net(pl.LightningModule):
         name = f"{prefix}/input_mixed_reconstr_images"
         self.logger.experiment.log({name: [wandb.Image(plot, caption=caption)]})
 
-    def id_loss_weight(self, n_epochs_delta_min, n_epochs_delta_rise, delta_max, delta_min = 0.0):
+    def scale_for_vgg(self, imgs):
+        """Scales a batch of images from FUNIT normalization to ImageNet normalization
         """
-        Parameters:
-            - (int) n_epochs_delta_min: We keep the same weight for the first <n_epochs_delta_min> epochs
-            - (int) n_epochs_delta_rise: and successively increase the rate by 0.1 over the next <n_epochs_delta_rise> epochs
-            - (float) delta_max: Upper threshold which delta should reach by successive increase after <n_epochs_delta_rise> epochs
-            - (float) delta_min: Initial weight for delta kept for the first <n_epochs_delta_min>
-        Returns:
-            - (float) delta: the weight for the id loss in the current epoch
-        """
-        if self.hparams.delta_fixed: 
-            return self.hparams.delta_max
 
-        if self.current_epoch > (n_epochs_delta_min + n_epochs_delta_rise):
-            delta = delta_max
-        else:
-            delta = delta_min + max(0, self.current_epoch - n_epochs_delta_min) * (delta_max / float(n_epochs_delta_rise))
-        return delta
-
-    def scale_for_id_encoder(self, imgs):
         scaled_imgs = imgs.clone()
         num_imgs = scaled_imgs.shape[0]
 
@@ -205,52 +185,39 @@ class Net(pl.LightningModule):
         for i in range(num_imgs):
             scaled_imgs[i] = self.funit_denorm(imgs[i])
 
-        # scale to range [0,255]
-        scaled_imgs *= 255
-
-        # normalize with VGGFace2 mean and std
+        # normalize with ImageNet mean and std
         for i in range(num_imgs):
-            scaled_imgs[i] = self.id_norm(scaled_imgs[i])
+            scaled_imgs[i] = self.vgg_norm(scaled_imgs[i])
         
         return scaled_imgs
 
     def calc_g_loss(self, x1, x2, out, prefix):
 
         ### RECONSTRUCTION LOSS ###
-        # get vgg features of original and reconstructed images
-        # TODO scale images for vgg
-        orig_features_1 = self.vgg(x1)[1]
-        orig_features_2 = self.vgg(x2)[1]
-        recon_features_1 = self.vgg(out["r1"])[1]
-        recon_features_2 = self.vgg(out["r2"])[1]
-        
-        vgg_loss = self.hparams.alpha * (F.l1_loss(orig_features_1, recon_features_1) + F.l1_loss(orig_features_2, recon_features_2))
+
+        # long reconstruction loss
+        orig_features_1 = self.vgg(self.scale_for_vgg(x1))[1]
+        orig_features_2 = self.vgg(self.scale_for_vgg(x2))[1]
+        recon_l_features_1 = self.vgg(self.scale_for_vgg(out["r1"]))[1]
+        recon_l_features_2 = self.vgg(self.scale_for_vgg(out["r2"]))[1]
+        vgg_loss_l = self.hparams.alpha_l * (F.l1_loss(orig_features_1, recon_l_features_1) + F.l1_loss(orig_features_2, recon_l_features_2))
+
+        # short reconstruction loss 
+        recon_s_features_1 = self.vgg(self.scale_for_vgg(out["x1_hat"]))[1]
+        recon_s_features_2 = self.vgg(self.scale_for_vgg(out["x2_hat"]))[1]
+        vgg_loss_s = self.hparams.alpha_s * (F.l1_loss(orig_features_1, recon_s_features_1) + F.l1_loss(orig_features_2, recon_s_features_2))
 
         ### CYCLE CONSISTENCY LOSSES ###
-        
-        cycle_loss_a = F.mse_loss(out["x1_a"], out["m1_a"]) + F.mse_loss(out["x2_a"], out["m2_a"])
-        cycle_loss_b = F.mse_loss(out["x1_b"], out["m2_b"]) + F.mse_loss(out["x2_b"], out["m1_b"])
-        cycle_loss = self.hparams.gamma * (cycle_loss_a + cycle_loss_b)
-
-        ### IDENTITY LOSSES ###
-        
-        # get identity encodings 
-        orig_id_features_1, _ = self.id_enc(self.scale_for_id_encoder(x1))
-        orig_id_features_2, _ = self.id_enc(self.scale_for_id_encoder(x2))
-        mixed_id_features_1, _ = self.id_enc(self.scale_for_id_encoder(out["m1"]))
-        mixed_id_features_2, _ = self.id_enc(self.scale_for_id_encoder(out["m2"]))
-        
-        delta = self.id_loss_weight(self.hparams.n_epochs_delta_min, self.hparams.n_epochs_delta_rise, self.hparams.delta_max, self.hparams.delta_min)
-        id_loss = delta * (F.l1_loss(orig_id_features_1, mixed_id_features_2) + F.l1_loss(orig_id_features_2, mixed_id_features_1))
-        
+        cycle_loss_c = self.hparams.gamma_c * (F.mse_loss(out["x1_c"], out["m2_c"]) + F.mse_loss(out["x2_c"], out["m1_c"]))
+        cycle_loss_id = self.hparams.gamma_id * (F.mse_loss(out["x1_id"], out["m2_id"]) + F.mse_loss(out["x2_id"], out["m1_id"]))
+       
         ### ADVERSARIAL LOSS ###
-        
         self.mixed_imgs = torch.cat((out["m1"], out["m2"]), 0)
-        adv_g_loss = self.hparams.lambda_g * self.gan_criterion(self.dis(self.mixed_imgs), True)
+        adv_g_loss = self.hparams.delta * self.gan_criterion(self.dis(self.mixed_imgs), True)
 
         ### OVERALL GENERATOR LOSS ###
-        loss = vgg_loss + cycle_loss + id_loss + adv_g_loss
-        log = {f"{prefix}/vgg_loss": vgg_loss, f"{prefix}/cycle_loss": cycle_loss, f"{prefix}/id_loss": id_loss, f"{prefix}/adv_g_loss": adv_g_loss, f"{prefix}/delta": delta}
+        loss = vgg_loss_l + vgg_loss_s + cycle_loss_c + cycle_loss_id + adv_g_loss
+        log = {f"{prefix}/vgg_loss_l": vgg_loss_l, f"{prefix}/vgg_loss_s": vgg_loss_s, f"{prefix}/cycle_loss_c": cycle_loss_c, f"{prefix}/cycle_loss_id": cycle_loss_id, f"{prefix}/adv_g_loss": adv_g_loss}
 
         return loss, log
 
@@ -346,7 +313,6 @@ def main(hparams):
         gpus=hparams.gpus,
         max_epochs=hparams.max_epochs,
         num_sanity_val_steps=hparams.num_sanity_val_steps,
-        distributed_backend="ddp",
     )
 
     trainer.fit(model)
